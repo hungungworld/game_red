@@ -6,9 +6,11 @@ const defaults = () => ({
   pieces: {}, // id -> { best: 'S'|'A'|'B', seal: bool, bestTime: seconds }
   tools: {}, // id -> true
   cards: 0, // 남긴 방문 카드
-  visits: 0, // 방문 횟수
   bestTime: null,
   tutorialDone: false,
+  storySeen: false, // 프롤로그
+  guideSeen: false, // 방문 방법
+  pantherSeen: false, // 팬더 스텝 첫 설명
 });
 
 function load() {

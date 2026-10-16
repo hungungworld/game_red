@@ -1,11 +1,11 @@
-import { PIECES, DIFF, TOOLS, GRADE } from './data.js';
+import { PIECES, DIFF, TOOLS, GRADE, STORY } from './data.js';
 import { store } from './store.js';
 import { audio } from './audio.js';
 import { haptics } from './haptics.js';
 import { el, closeOverlay, overlay, toast, clearRadio, hint } from './ui.js';
 import { Mission } from './mission.js';
 import { L as T } from './lines.js';
-import { showGuide, isGuideOpen } from './guide.js';
+import { showGuide, showStory, isGuideOpen } from './guide.js';
 import { dayIndex, fmtTime } from './util.js';
 import { initGfx, resizeGfx, setQuality } from './gfx.js';
 import { input, pollInput, endFrame, isTouch } from './input.js';
@@ -165,11 +165,11 @@ function renderTitle() {
     b.classList.toggle('on', on);
     b.setAttribute('aria-checked', on);
   }
-  const sealed = PIECES.every((x) => store.data.pieces[x.id]?.seal);
+  const back = PIECES.filter((x) => store.data.pieces[x.id]).length;
   const tag = document.querySelector('.tagline');
-  tag.innerHTML = sealed
-    ? '시즌 서클에 초대되었습니다 — 초대장을 받은 사람만 알 수 있습니다.'
-    : T.title.tagline;
+  tag.innerHTML = back >= PIECES.length
+    ? '다섯 점이 모두 메종으로 돌아왔습니다. 이제는 더 우아하게, 더 조용히.'
+    : back ? `${T.title.tagline}<br><small>되찾은 진품 ${back} / ${PIECES.length}</small>` : T.title.tagline;
 }
 
 function pieceState(rec) {
@@ -193,12 +193,14 @@ function renderSalon() {
     queueThumb(b.querySelector('canvas'), p.id, { silhouette: !rec });
   }
   const d = store.data;
+  const back = PIECES.filter((x) => d.pieces[x.id]).length;
   const sealed = PIECES.filter((x) => d.pieces[x.id]?.seal).length;
   $('#salon-meta').innerHTML = `
-    남긴 방문 카드 <b>${d.cards}장</b><br>
-    팬더 인장 <b>${sealed} / ${PIECES.length}</b> — 다섯 피스를 모두 채우면 시즌 서클 초대<br>
+    되찾은 진품 <b>${back} / ${PIECES.length}</b> — 다섯 점을 모두 메종으로 돌려보내면 이야기의 끝을 볼 수 있습니다<br>
+    남긴 방문 카드 <b>${d.cards}장</b> · 팬더 인장 <b>${sealed} / ${PIECES.length}</b> <small>(전설 난이도 S)</small><br>
     ${d.bestTime ? `나의 최단 기록 <b>${fmtTime(d.bestTime)}</b><br>` : ''}
-    <div class="tools"><span class="eyebrow">괴도의 도구</span>${TOOLS.map((x) => `<span class="${d.tools[x.id] ? '' : 'off'}">${x.name}</span>`).join('')}</div>`;
+    <div class="tools"><span class="eyebrow">괴도의 도구 · 얻으면 늘 지니고 갑니다</span>${TOOLS.map((x) => `<p class="${d.tools[x.id] ? '' : 'off'}"><b>${x.name}</b> ${d.tools[x.id] ? x.effect : `얻는 법: ${x.when}`}</p>`).join('')}</div>
+    ${back >= PIECES.length ? '<button class="link" data-nav="epilogue">에필로그 다시 보기</button>' : ''}`;
 }
 
 function renderSettings() {
@@ -231,6 +233,10 @@ document.addEventListener('click', (e) => {
   const a = n.dataset.nav;
   if (a === 'start') startMission(dailyPiece());
   else if (a === 'guide') showGuide({ startLabel: '닫기', onDone: () => renderTitle() });
+  else if (a === 'story') showStory({ startLabel: '닫기', closeLabel: '닫기', onDone: () => renderTitle() });
+  else if (a === 'epilogue') {
+    overlay(`<div class="panel night-panel fade-in"><p class="eyebrow">Épilogue</p><h2>다섯 점이 돌아왔습니다</h2>${STORY.epilogue.map((l) => `<p class="op">${l}</p>`).join('')}<button class="primary light" data-a="close">닫기</button></div>`, { cls: 'paper dark', onAction: () => closeOverlay() });
+  }
   else if (a === 'reset') {
     if (confirm('살롱의 모든 기록을 지울까요?')) {
       store.reset();
@@ -243,7 +249,18 @@ document.addEventListener('click', (e) => {
 
 function startMission(piece) {
   audio.unlock();
-  // 처음 방문하는 사람에게는 방법부터
+  // 처음 방문하는 사람에게는 이야기와 방법부터
+  if (!store.data.storySeen) {
+    showStory({
+      closeLabel: '건너뛰기',
+      onDone: () => {
+        store.data.storySeen = true;
+        store.save();
+        startMission(piece);
+      },
+    });
+    return;
+  }
   if (!store.data.guideSeen) {
     showGuide({
       closeLabel: '건너뛰고 시작',
@@ -290,7 +307,7 @@ function pause() {
         mission.stage?.dispose?.();
         mission.retry();
       } else if (a === 'guide') {
-        const at = { gallery: 1, ante: 1, vault: 2, swap: 3 }[mission.flow[mission.idx]?.key] ?? 0;
+        const at = { gallery: 1, ante: 1, vault: 3, swap: 4 }[mission.flow[mission.idx]?.key] ?? 0;
         closeOverlay();
         showGuide({ startAt: at, startLabel: '닫기', closeLabel: '닫기', onDone: () => { mission.paused = false; pause(); } });
       } else if (a === 'sound') {

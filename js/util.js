@@ -3,15 +3,6 @@ export const lerp = (a, b, t) => a + (b - a) * t;
 export const rand = (a, b) => a + Math.random() * (b - a);
 export const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
-export function shuffle(arr) {
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
 // signed shortest difference a - b in degrees, range [-180, 180)
 export const angDiff = (a, b) => ((((a - b) % 360) + 540) % 360) - 180;
 

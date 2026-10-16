@@ -229,32 +229,48 @@ export function buildCamera() {
   return g;
 }
 
-export function buildEmblem() {
+// 현장 도구: 바닥 위에 떠서 도는 작은 소품 + 색 후광. kind = card | smoke | plan
+const KIT_GLOW = { card: [2.4, 0.9, 0.9], smoke: [1.4, 1.5, 1.7], plan: [1.2, 1.7, 2.4] };
+export function buildPickup(kind) {
   const g = new THREE.Group();
-  const coin = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.025, 32), MAT.gold());
-  coin.rotation.x = Math.PI / 2;
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.008, 8, 32), MAT.onyx());
-  ring.position.z = 0.014;
-  const paw = new THREE.Group();
-  const dot = (x, y, r) => {
-    const m = new THREE.Mesh(new THREE.CircleGeometry(r, 16), MAT.onyx());
-    m.position.set(x, y, 0.014);
-    paw.add(m);
-  };
-  dot(0, -0.03, 0.045);
-  dot(-0.055, 0.03, 0.02);
-  dot(-0.018, 0.06, 0.02);
-  dot(0.018, 0.06, 0.02);
-  dot(0.055, 0.03, 0.02);
-  const back = paw.clone();
-  back.rotation.y = Math.PI;
   const holder = new THREE.Group();
-  holder.add(coin, ring, paw, back);
+  if (kind === 'card') {
+    const face = new THREE.MeshStandardMaterial({ color: 0xf3eee6, roughness: 0.5 });
+    for (let i = 0; i < 3; i++) {
+      const c = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.28, 0.008), face);
+      c.position.set((i - 1) * 0.03, 0, i * 0.012);
+      c.rotation.z = (i - 1) * 0.22;
+      holder.add(c);
+    }
+    const pip = new THREE.Mesh(new THREE.OctahedronGeometry(0.05), new THREE.MeshStandardMaterial({ color: 0xa50f1e, roughness: 0.3, emissive: 0x400006 }));
+    pip.scale.z = 0.2;
+    pip.position.set(0.03, 0, 0.04);
+    holder.add(pip);
+  } else if (kind === 'smoke') {
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.12, 24, 16), MAT.onyx());
+    const band = new THREE.Mesh(new THREE.TorusGeometry(0.122, 0.014, 8, 32), MAT.gold());
+    band.rotation.x = Math.PI / 2;
+    const fuse = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.09, 8), MAT.white());
+    fuse.position.y = 0.15;
+    const spark = new THREE.Mesh(new THREE.SphereGeometry(0.02, 8, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 1.6, 0.6) }));
+    spark.position.y = 0.2;
+    holder.add(ball, band, fuse, spark);
+  } else {
+    const paper = new THREE.MeshStandardMaterial({ color: 0x9fb4cf, roughness: 0.8 });
+    const roll = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.34, 20), paper);
+    roll.rotation.z = Math.PI / 2;
+    const tie = new THREE.Mesh(new THREE.TorusGeometry(0.058, 0.01, 8, 24), MAT.gold());
+    tie.rotation.y = Math.PI / 2;
+    holder.add(roll, tie);
+  }
   holder.position.y = 0.6;
-  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: new THREE.Color(2.2, 1.7, 0.9), transparent: true, opacity: 0.6, depthWrite: false, blending: THREE.AdditiveBlending }));
-  halo.scale.setScalar(0.9);
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: new THREE.Color(...KIT_GLOW[kind]), transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending }));
+  halo.scale.setScalar(0.95);
   halo.position.y = 0.6;
-  g.add(holder, halo);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.26, 0.29, 40), new THREE.MeshBasicMaterial({ color: new THREE.Color(...KIT_GLOW[kind]), transparent: true, opacity: 0.45, depthWrite: false }));
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.02;
+  g.add(holder, halo, ring);
   g.userData.spin = holder;
   return g;
 }

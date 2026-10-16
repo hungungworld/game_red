@@ -56,6 +56,7 @@ export class Vault {
     const [l1, l2] = T.vault.intro(name);
     radio(l1, 2200);
     radio(l2, 3600);
+    if (this.m.kit.plan) radio(T.vault.plan, 3600);
     hint(isTouch ? '<span class="kc">드래그</span> 다이얼 돌리기 · 신호가 꽉 차면 손 떼고 기다리기'
       : '<kbd>A</kbd><kbd>D</kbd> 또는 <kbd>드래그</kbd> · <kbd>휠</kbd> 돌리기 <kbd>Shift</kbd> 정밀 · 신호가 꽉 차면 멈추기', this.m.store.tutorialDone ? 6000 : 10000);
     const el = document.createElement('div');
@@ -333,6 +334,15 @@ export class Vault {
       cap.position.z = 0.4;
       this.door.add(cap);
     }
+    // 금고 설계도: 첫 번째 정답 자리에 금빛 표시 (다이얼과 함께 돌고, 12시에 오면 정답)
+    if (this.m.kit.plan) {
+      const r = this.type === 'love' ? R * 0.9 : R * 0.89;
+      const a = ((90 + this.targets[0]) * Math.PI) / 180;
+      const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.075), new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 2.2, 0.9) }));
+      gem.position.set(Math.cos(a) * r, Math.sin(a) * r, 0.2);
+      this.dials[0].add(gem);
+      this.planMark = gem;
+    }
     // 금빛 번짐 링 · 째깍 파동
     this.glow = new THREE.Mesh(new THREE.TorusGeometry(1, 0.012, 8, 160), additive(0xffc977, 0));
     this.glow.position.z = 0.55;
@@ -402,6 +412,10 @@ export class Vault {
     this.wave.scale.setScalar(rr * (1.04 + (1 - this.pulseFx) * 0.12));
     this.wave.material.opacity = this.pulseFx * 0.25 + this.lockFx * 0.6;
     this.dots.forEach((d, i) => { d.visible = i < this.idx; });
+    if (this.planMark) {
+      this.planMark.visible = this.idx === 0;
+      this.planMark.rotation.z = this.t * 2;
+    }
     if (this.ui) {
       const n = Math.round(prox * 7);
       this.ui.bars.forEach((b, i) => b.classList.toggle('on', i < n));

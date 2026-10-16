@@ -1,6 +1,6 @@
 // 한 판(약 3분)의 미션 진행: 단계 전환, 시선 게이지, 정체 드러남, 회수 등급.
 import { clamp, fmtTime } from './util.js';
-import { GRADE, TOOLS } from './data.js';
+import { GRADE, TOOLS, KIT, PIECES, STORY } from './data.js';
 import { L as T, pick } from './lines.js';
 import { audio } from './audio.js';
 import { haptics } from './haptics.js';
@@ -9,7 +9,6 @@ import { el, radio, clearRadio, hint, edge, setGaze, setWatch, overlay, closeOve
 import { getShowcase, Reveal, drawBlank } from './scenes.js';
 import { preloadCharacters } from './characters.js';
 import { Heist } from './stages/heist.js';
-import { LEVELS } from './levels.js';
 import { Vault } from './stages/vault.js';
 import { Swap } from './stages/swap.js';
 
@@ -24,7 +23,7 @@ export class Mission {
     this.mods = { ...this.store.tools, easy: !!s.easy };
     this.onExit = onExit;
     this.flow = [
-      { key: 'gallery', zone: '갤러리 회랑', sub: '1단계 · 잠입', make: () => new Heist(this, 'gallery') },
+      { key: 'gallery', zone: '모로 저택 · 갤러리 회랑', sub: '1단계 · 잠입', make: () => new Heist(this, 'gallery') },
       { key: 'vault', zone: '지하 금고실', sub: `2단계 · ${piece.vault === 'love' ? 'Love' : 'Trinity'} 금고`, make: () => new Vault(this) },
       { key: 'ante', zone: '비밀 전시실 앞', sub: '3단계 · 잠입', make: () => new Heist(this, 'antechamber') },
       { key: 'swap', zone: '비밀 전시실', sub: '4단계 · 벨벳 레플리카', make: () => new Swap(this) },
@@ -33,7 +32,7 @@ export class Mission {
     this.gaze = 0;
     this.gazeFloor = 0;
     this.peakGaze = 0;
-    this.emblems = 0;
+    this.kit = { card: KIT.card.start, smoke: KIT.smoke.start, plan: false }; // 현장 도구 (이번 방문에서만)
     this.alerted = false;
     this.stageGaze = 0;
     this.elapsed = 0;
@@ -46,7 +45,6 @@ export class Mission {
     this.idx = 0;
     this.timeScale = 1;
     this.slowT = 0;
-    this.pantherFx = 0;
     this.fade = 0;
     this.paused = false;
     this.W = 0;
@@ -56,15 +54,21 @@ export class Mission {
   start() {
     setGaze(0);
     getShowcase().set({ mode: 'piece', piece: this.piece.id, offsetY: 0.27 });
-    const lines = T.brief(this.piece.name).map((l) => `<p class="op">${l}</p>`).join('');
+    const lines = T.brief(this.piece).map((l) => `<p class="op">${l}</p>`).join('');
+    const owned = TOOLS.filter((x) => this.store.tools[x.id]);
+    const tools = owned.length
+      ? `<p class="meta kitline"><b>지니고 가는 도구</b> ${owned.map((x) => `${x.name}<small> · ${x.effect}</small>`).join('<br>')}</p>`
+      : '';
+    const found = PIECES.filter((x) => this.store.pieces[x.id]).length;
     overlay(`
       <div class="window"></div>
       <div class="panel brief fade-in">
-        <p class="eyebrow">Mission · ${this.diff.label}</p>
+        <p class="eyebrow">${STORY.house} · ${found} / ${PIECES.length} 되찾음 · ${this.diff.label}</p>
         <h2>${this.piece.name}</h2>
         <p class="eyebrow dim">${this.piece.line}</p>
         <div class="ops"><span class="eyebrow">Operator</span>${lines}</div>
         <p class="meta">갤러리 회랑 → 지하 금고실 → 비밀 전시실 · 약 4분</p>
+        ${tools}
         <button class="primary" data-a="go">방문 시작</button>
         <button class="link" data-a="back">돌아가기</button>
       </div>`, { cls: 'paper', onAction: (a) => (a === 'go' ? this.begin() : this.exit()) });
@@ -86,9 +90,10 @@ export class Mission {
 
   enterStage(i) {
     this.idx = i;
-    if (this.retrying) this.emblems = this.stageStartEmblems ?? this.emblems;
+    // 다시 하면 그 방에 들어올 때의 도구로 되돌린다
+    if (this.retrying && this.stageStartKit) this.kit = { ...this.stageStartKit };
     this.retrying = false;
-    this.stageStartEmblems = this.emblems;
+    this.stageStartKit = { ...this.kit };
     this.stageStartGaze = this.gaze;
     this.stageGaze = 0;
     this.state = 'transition';
@@ -152,13 +157,22 @@ export class Mission {
     audio.warn();
   }
 
+  // 팬더 스텝: 움직이는 레이저를 아슬아슬하게 비켜 간 순간. 0.5초 슬로 모션, 시선 -8 (레이저로 쌓인 몫까지 식는다)
   pantherStep() {
     this.pantherSteps++;
     this.slowT = 0.5;
-    this.pantherFx = 1;
+    this.gaze = Math.max(0, this.gaze - 8);
+    this.gazeFloor = Math.min(Math.max(0, this.gazeFloor - 8), this.gaze);
+    setGaze(this.gaze);
+    audio.tempo = 76 + this.gaze * 0.45;
     audio.slow();
     haptics.clunk();
-    radio(T.panther, 1600);
+    edge('gold');
+    if (!this.store.pantherSeen) {
+      this.store.pantherSeen = true;
+      store.save();
+      radio(T.pantherFirst, 4200);
+    } else radio(pick(T.panther), 1400);
     const fx = document.getElementById('fx');
     fx.classList.remove('on');
     void fx.offsetWidth;
@@ -260,6 +274,7 @@ export class Mission {
     const rec = d.pieces[this.piece.id] || {};
     const rank = { B: 1, A: 2, S: 3 };
     const firstRetrieve = !Object.keys(d.pieces).length;
+    const before = PIECES.filter((x) => d.pieces[x.id]).length;
     const isNew = !rec.best;
     const seal = grade === 'S' && this.diff.id === 'legend';
     if (!rec.best || rank[grade] > rank[rec.best]) rec.best = grade;
@@ -281,9 +296,11 @@ export class Mission {
     if (v && v.gaze === 0 && v.timeLeft >= 15 && this.revealed === 0) give('loupe');
     const l = this.stats.gallery;
     if (l && l.hits === 0 && this.revealed === 0) give('monocle');
+    const allBack = before < PIECES.length && PIECES.every((x) => d.pieces[x.id]);
     store.save();
 
     this.result = {
+      allBack,
       grade, t, seal, gifts, isNew,
       crit: [
         ['레이저에 닿지 않기', hits === 0 && this.gazeFloor === 0],
@@ -316,13 +333,13 @@ export class Mission {
     const G = GRADE[grade];
     getShowcase().set({ mode: 'piece', piece: this.piece.id, offsetY: 0.3 });
     const giftHtml = gifts.length
-      ? `<p class="gift">${gifts.map((x) => `<b>선물 · ${x.name}</b> ${x.effect}`).join('<br>')}</p>`
+      ? `<p class="gift">${gifts.map((x) => `<b>새 도구 · ${x.name}</b> ${x.effect}. 다음 방문부터 늘 지니고 갑니다.`).join('<br>')}</p>`
       : '';
     const note = this.mods.easy ? '<p class="gift">판정 범위 완화 중 · 전설 등급은 기록되지 않습니다</p>' : '';
     overlay(`
       <div class="window"></div>
       <div class="panel result fade-in">
-        <p class="eyebrow">회수 완료 · ${this.diff.label}</p>
+        <p class="eyebrow">진품 회수 · ${PIECES.filter((x) => this.store.pieces[x.id]).length} / ${PIECES.length} · ${this.diff.label}</p>
         <p class="grade">${G.label}<em>${grade}</em></p>
         <p class="place">${this.piece.name} — ${seal ? '팬더 인장이 찍힌 진열' : G.place}</p>
         <p class="quote">“${T.result[grade]}”</p>
@@ -330,7 +347,7 @@ export class Mission {
           <div><dt>시간</dt><dd>${fmtTime(t)}</dd></div>
           <div><dt>최고 시선</dt><dd>${Math.round(this.peakGaze)}%</dd></div>
           <div><dt>완벽한 손놀림</dt><dd>${this.perfects}</dd></div>
-          <div><dt>발자국</dt><dd>${this.emblems}<small>/${Object.values(LEVELS).reduce((n, l) => n + l.map.join('').split('P').length - 1, 0)}</small></dd></div>
+          <div><dt>팬더 스텝</dt><dd>${this.pantherSteps}</dd></div>
         </dl>
         <ul class="crit"><li class="h">전설 S 조건${grade === 'S' ? ' — 모두 달성' : ''}</li>${this.result.crit.map(([k, ok]) => `<li class="${ok ? 'ok' : ''}"><i></i>${k}</li>`).join('')}</ul>
         ${giftHtml}${note}
@@ -341,9 +358,24 @@ export class Mission {
       cls: 'paper',
       onAction: (a) => {
         if (a === 'share') this.share();
+        else if (this.result.allBack) this.showEpilogue(a);
         else this.exit(a);
       },
     });
+  }
+
+  // 다섯 점을 모두 되찾은 첫 순간
+  showEpilogue(next) {
+    this.result.allBack = false;
+    getShowcase().set({ mode: 'redbox', piece: this.piece.id, offsetY: 0.14 });
+    overlay(`
+      <div class="window"></div>
+      <div class="panel night-panel fade-in">
+        <p class="eyebrow">Épilogue</p>
+        <h2>다섯 점이 돌아왔습니다</h2>
+        ${STORY.epilogue.map((l) => `<p class="op">${l}</p>`).join('')}
+        <button class="primary light" data-a="next">살롱으로</button>
+      </div>`, { cls: 'paper dark', onAction: () => this.exit(next === 'again' ? 'again' : 'salon') });
   }
 
   async share() {

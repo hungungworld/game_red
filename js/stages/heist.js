@@ -1,14 +1,16 @@
 // 잠입 스테이지: 위에서 내려다보는 메종을 자유롭게 이동한다.
-// 관리인 시야·감시 카메라·레이저(점멸·틈·회전·차선)·퓨즈·수집품.
+// 관리인 시야·감시 카메라·레이저(점멸·틈·회전·차선)·퓨즈·현장 도구(카드 총·연막탄·설계도).
 import { clamp, pingpong, angDiff } from '../util.js';
 import { THREE, MAT, getEnv, draw, fitDist, glowTex } from '../gfx.js';
 import { makeRed, makeGuard } from '../characters.js';
+import { buildCard } from '../models.js';
+import { KIT } from '../data.js';
 import {
-  checkerFloor, buildWalls, buildColumn, buildCase, buildFuse, buildExit, buildCamera, buildEmblem,
+  checkerFloor, buildWalls, buildColumn, buildCase, buildFuse, buildExit, buildCamera, buildPickup,
   buildLaser, placeLaser, buildEmitter, VisionFan, markSprite, buildDust,
 } from '../props.js';
 import { LEVELS } from '../levels.js';
-import { input, isTouch, showPad, setPadAction } from '../input.js';
+import { input, isTouch, showPad, setPadAction, setPadKit } from '../input.js';
 import { audio } from '../audio.js';
 import { haptics } from '../haptics.js';
 import { radio, hint, edge } from '../ui.js';
@@ -20,6 +22,11 @@ const DIFF_I = { apprentice: 0, pro: 1, legend: 2 };
 const SOLID = new Set(['#', 'O', 'D', 'F']);
 const SIGHT_BLOCK = new Set(['#', 'O']);
 const D2R = Math.PI / 180;
+const PICK = { C: 'card', M: 'smoke', B: 'plan' };
+const SMOKE_R = 1.9;
+const SMOKE_T = 5;
+const CARD_RANGE = 7;
+const LURE_R = 7;
 
 export class Heist {
   constructor(m, levelId) {
@@ -43,17 +50,18 @@ export class Heist {
     this.disabled = new Set();
     this.hits = 0;
     this.alerts = 0;
-    this.emblemsGot = 0;
     this.sinceSeen = 9;
     this.nearCd = 0;
+    this.smoke = null; // { x, z, t }
+    this.shots = []; // 날아가는 카드
 
-    this.emblems = [];
+    this.pickups = [];
     this.cases = [];
     this.cols = [];
     this.map.forEach((row, z) => [...row].forEach((ch, x) => {
       if (ch === 'S') this.start = [x + 0.5, z + 0.5];
       if (ch === 'E') this.exit = [x + 0.5, z + 0.5];
-      if (ch === 'P') this.emblems.push({ x: x + 0.5, z: z + 0.5, got: false });
+      if (PICK[ch]) this.pickups.push({ kind: PICK[ch], x: x + 0.5, z: z + 0.5, got: false });
       if (ch === 'D') this.cases.push([x, z]);
       if (ch === 'O') this.cols.push([x, z]);
     }));
@@ -80,6 +88,7 @@ export class Heist {
     this.cued = new Set();
     this.lineCd = 0;
     this.setObjective();
+    this.setKit();
   }
 
   say(text, ms = 2400, force = false) {
@@ -103,13 +112,34 @@ export class Heist {
       this.say(this.guards.length > 1 ? T.heist.crossGuards : T.heist.guardRoom(isTouch), 3600, true);
       if (this.fuses.some((f) => !f.done)) setTimeout(() => this.m.state === 'play' && radio(T.heist.fuseHint, 2800), 3800);
     }
+    // 처음 보이는 현장 도구도 한 번씩
+    for (const k of this.pickups) {
+      if (k.got || this.cued.has(`kit-${k.kind}`) || Math.hypot(k.x - p.x, k.z - p.z) > 5) continue;
+      this.cued.add(`kit-${k.kind}`);
+      this.say(T.heist.kitHint[k.kind], 3000);
+    }
   }
 
   setObjective() {
     const el = document.getElementById('objective');
     if (!el) return;
     const fuseLeft = this.fuses.filter((f) => !f.done).length;
-    el.innerHTML = `<b class="obj-dot"></b><span class="obj-t">${fuseLeft ? '퓨즈함을 내려 레이저 문 끄기' : '금빛 표시가 있는 문으로'}</span><em title="팬더 발자국">${'◆'.repeat(this.emblemsGot)}${'◇'.repeat(this.emblems.length - this.emblemsGot)}</em>`;
+    el.innerHTML = `<b class="obj-dot"></b><span class="obj-t">${fuseLeft ? '퓨즈함을 내려 레이저 문 끄기' : '금빛 표시가 있는 문으로'}</span>`;
+  }
+
+  // 현장 도구 띠: 카드·연막 수와 설계도
+  setKit(flash) {
+    const kit = this.m.kit;
+    setPadKit(kit);
+    const el = document.getElementById('kit');
+    if (!el) return;
+    el.hidden = false;
+    const key = (k) => (isTouch ? '' : `<kbd>${KIT[k].key}</kbd>`);
+    el.innerHTML = [
+      `<span class="${kit.card ? '' : 'off'} ${flash === 'card' ? 'flash' : ''}">${key('card')}${KIT.card.name} <b>${kit.card}</b></span>`,
+      `<span class="${kit.smoke ? '' : 'off'} ${flash === 'smoke' ? 'flash' : ''}">${key('smoke')}${KIT.smoke.name} <b>${kit.smoke}</b></span>`,
+      kit.plan ? `<span class="${flash === 'plan' ? 'flash' : ''}">${KIT.plan.name} <b>✓</b></span>` : '',
+    ].join('');
   }
 
   // 마우스·터치로 캔버스를 누르는 입력은 쓰지 않는다 (조이스틱·키보드)
@@ -178,6 +208,7 @@ export class Heist {
     this.updateGuards(dt);
     this.updateCams(dt);
     this.collect();
+    this.useKit(dt);
     this.cues();
     this.sinceSeen += dt;
     if (this.sinceSeen > 1.6) this.m.relax(dt * 6);
@@ -188,7 +219,7 @@ export class Heist {
       showPad(false);
       audio.door();
       radio(pick(T.heist.exit), 1400);
-      this.m.stageClear({ hits: this.hits, alerts: this.alerts, emblems: this.emblemsGot });
+      this.m.stageClear({ hits: this.hits, alerts: this.alerts });
     }
   }
 
@@ -258,7 +289,9 @@ export class Heist {
     const P = l.pulse.period / this.mod.laser;
     const c = (this.t + l.pulse.phase) % P;
     const onT = l.pulse.on * P;
-    if (c >= onT) return P - c < 0.3 ? 0.14 : 0.04; // 다시 켜지기 직전 희미하게 예고
+    // 다시 켜지기 직전 희미하게 예고 (적외선 모노클이 있으면 더 일찍, 꺼진 동안에도 흐릿하게 보인다)
+    const warn = this.m.mods.monocle ? 0.6 : 0.3;
+    if (c >= onT) return P - c < warn ? 0.16 : this.m.mods.monocle ? 0.08 : 0.04;
     return onT - c < 0.3 ? 0.38 : 1;
   }
 
@@ -294,7 +327,7 @@ export class Heist {
         if (d < R + 0.03 && p.inv <= 0) this.hitLaser(s);
         else if (d < R + 0.4 && this.nearCd <= 0 && l.kind !== 'line' && Math.hypot(p.vx, p.vz) > 0.5) {
           this.nearCd = 4;
-          this.m.pantherStep();
+          this.m.pantherStep(); // 움직이는 레이저를 아슬아슬하게 비켜 가면: 슬로 모션 + 시선이 식는다
         }
       }
     }
@@ -360,25 +393,92 @@ export class Heist {
     }
   }
 
-  // ---------- 수집품 ----------
+  // ---------- 현장 도구 ----------
   collect() {
     const p = this.p;
-    for (const e of this.emblems) {
-      if (e.got || Math.hypot(p.x - e.x, p.z - e.z) > 0.55) continue;
-      e.got = true;
-      this.emblemsGot++;
-      this.m.emblems = (this.m.emblems || 0) + 1;
+    for (const k of this.pickups) {
+      if (k.got || Math.hypot(p.x - k.x, p.z - k.z) > 0.6) continue;
+      k.got = true;
+      if (k.kind === 'plan') this.m.kit.plan = true;
+      else this.m.kit[k.kind]++;
       audio.chime();
       haptics.tick();
       edge('gold');
-      this.say(pick(T.heist.emblem), 1600);
-      this.setObjective();
+      const line = T.heist.pick[k.kind];
+      this.say(typeof line === 'function' ? line(isTouch) : line, 3400, true);
+      this.setKit(k.kind);
     }
+  }
+
+  useKit(dt) {
+    const p = this.p;
+    const kit = this.m.kit;
+    if (input.cardQueued) {
+      if (kit.card > 0) this.shootCard();
+      else this.say(T.heist.empty.card, 1600, true);
+    }
+    if (input.smokeQueued) {
+      if (kit.smoke > 0) {
+        kit.smoke--;
+        this.smoke = { x: p.x, z: p.z, t: SMOKE_T };
+        audio.swish();
+        haptics.clunk();
+        this.say(T.heist.smokeOn, 1600, true);
+        this.setKit();
+        if (this.smokeFx) this.smokeFx.userData.burst(p.x, p.z);
+      } else this.say(T.heist.empty.smoke, 1600, true);
+    }
+    if (this.smoke) {
+      this.smoke.t -= dt;
+      if (this.smoke.t <= 0) this.smoke = null;
+    }
+    // 날아가는 카드: 0.35초 뒤 떨어진 자리에서 소리가 난다
+    for (const c of this.shots) {
+      if (c.landed) continue;
+      c.t += dt;
+      if (c.t >= c.dur) {
+        c.landed = true;
+        this.lure(c.tx, c.tz);
+      }
+    }
+  }
+
+  shootCard() {
+    const p = this.p;
+    this.m.kit.card--;
+    const ang = Math.atan2(Math.cos(p.face), Math.sin(p.face)); // 바라보는 방향 (x, z 평면)
+    const d = Math.max(0.6, this.ray(p.x, p.z, ang, CARD_RANGE, SOLID) - 0.25);
+    const shot = { x: p.x, z: p.z, tx: p.x + Math.cos(ang) * d, tz: p.z + Math.sin(ang) * d, t: 0, dur: 0.12 + d * 0.04, landed: false, spin: Math.random() * 6 };
+    this.shots.push(shot);
+    if (this.scene) this.addShotMesh(shot);
+    audio.swish();
+    haptics.tick();
+    this.setKit();
+  }
+
+  // 카드가 떨어진 자리: 가까운 관리인이 확인하러 간다 (쫓는 중인 관리인은 제외)
+  lure(x, z) {
+    audio.tick(0.8, 'move');
+    let n = 0;
+    for (const g of this.guards) {
+      if (g.state === 'alert' || Math.hypot(g.x - x, g.z - z) > LURE_R) continue;
+      g.state = 'search';
+      g.target = [x, z];
+      g.lookT = 3.2;
+      n++;
+    }
+    this.say(n ? pick(T.heist.cardShot) : T.heist.cardMiss, 1800, true);
+  }
+
+  inSmoke() {
+    const s = this.smoke;
+    return !!s && Math.hypot(this.p.x - s.x, this.p.z - s.z) < SMOKE_R;
   }
 
   // ---------- 시야 ----------
   canSee(ox, oz, face, fovDeg, range) {
     const p = this.p;
+    if (this.inSmoke()) return 0;
     const dx = p.x - ox;
     const dz = p.z - oz;
     const d = Math.hypot(dx, dz);
@@ -432,7 +532,7 @@ export class Heist {
         }
       }
       // 잡힘
-      if (Math.hypot(g.x - p.x, g.z - p.z) < 0.62 && (g.state === 'alert' || g.state === 'search')) {
+      if (Math.hypot(g.x - p.x, g.z - p.z) < 0.62 && (g.state === 'alert' || g.state === 'search') && !this.inSmoke()) {
         this.m.addGaze(100, 'caught');
         return;
       }
@@ -554,11 +654,14 @@ export class Heist {
     const ex = buildExit();
     ex.position.set(this.exit[0], 0, this.exit[1] - 0.45);
     scene.add(ex);
-    for (const e of this.emblems) {
-      e.mesh = buildEmblem();
-      e.mesh.position.set(e.x, 0, e.z);
-      scene.add(e.mesh);
+    for (const k of this.pickups) {
+      k.mesh = buildPickup(k.kind);
+      k.mesh.position.set(k.x, 0, k.z);
+      scene.add(k.mesh);
     }
+    this.smokeFx = buildSmoke();
+    scene.add(this.smokeFx);
+    for (const c of this.shots) this.addShotMesh(c);
     // 레이저와 발광 기둥
     for (const l of this.lasers) {
       const n = l.kind === 'gap' ? 2 : l.kind === 'lane' ? l.count : l.kind === 'spin' ? l.arms : 1;
@@ -675,11 +778,18 @@ export class Heist {
       f.mesh.userData.lever.rotation.x = -0.5 + Math.min(1, f.done ? 1 : f.prog) * 1.6;
       f.mesh.userData.lamp.material.color.setRGB(f.done ? 0.6 : 4, f.done ? 3 : 0.3, f.done ? 1.6 : 0.4);
     }
-    for (const e of this.emblems) {
-      e.mesh.visible = !e.got;
-      e.mesh.userData.spin.rotation.y = t * 2;
-      e.mesh.userData.spin.position.y = 0.6 + Math.sin(t * 2.5) * 0.06;
+    for (const k of this.pickups) {
+      k.mesh.visible = !k.got;
+      k.mesh.userData.spin.rotation.y = t * 2;
+      k.mesh.userData.spin.position.y = 0.6 + Math.sin(t * 2.5) * 0.06;
     }
+    for (const c of this.shots) {
+      if (!c.mesh) continue;
+      const u = Math.min(1, c.t / c.dur);
+      c.mesh.position.set(c.x + (c.tx - c.x) * u, 0.9 * (1 - u) + 0.02 + Math.sin(u * Math.PI) * 0.25, c.z + (c.tz - c.z) * u);
+      c.mesh.rotation.set(-Math.PI / 2 * u, c.spin + (c.landed ? 0 : u * 14), 0, 'YXZ');
+    }
+    this.smokeFx.userData.tick(dtReal, this.smoke);
     this.caseMeshes.forEach((c, i) => { c.userData.jewel.rotation.y = t * 0.6 + i; });
     // 관리인
     for (const g of this.guards) {
@@ -734,6 +844,12 @@ export class Heist {
     draw(this.scene, this.cam);
   }
 
+  addShotMesh(c) {
+    c.mesh = buildCard();
+    c.mesh.scale.setScalar(0.7);
+    this.scene.add(c.mesh);
+  }
+
   fanPts(x, z, face, fov, range, n) {
     const pts = [];
     for (let i = 0; i <= n; i++) {
@@ -750,6 +866,8 @@ export class Heist {
     if (pr) pr.hidden = true;
     const ob = document.getElementById('objective');
     if (ob) ob.innerHTML = '';
+    const kit = document.getElementById('kit');
+    if (kit) kit.hidden = true;
   }
 }
 
@@ -790,4 +908,42 @@ function nearestIdx(path, x, z) {
     if (d < bd) { bd = d; bi = i; }
   });
   return bi;
+}
+
+// 연막: 회색 연기 덩어리 스프라이트. burst()로 피우고 tick()에서 퍼졌다 사라진다.
+function buildSmoke(n = 26) {
+  const g = new THREE.Group();
+  const puffs = Array.from({ length: n }, () => {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: 0xd4d6dc, transparent: true, opacity: 0, depthWrite: false }));
+    g.add(sp);
+    return { sp, ox: 0, oz: 0, oy: 0, s: 1 };
+  });
+  let cx = 0;
+  let cz = 0;
+  let age = 99;
+  g.userData.burst = (x, z) => {
+    cx = x;
+    cz = z;
+    age = 0;
+    for (const p of puffs) {
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.sqrt(Math.random()) * SMOKE_R * 0.9;
+      p.ox = Math.cos(a) * r;
+      p.oz = Math.sin(a) * r;
+      p.oy = 0.2 + Math.random() * 1.4;
+      p.s = 1.8 + Math.random() * 1.6;
+    }
+  };
+  g.userData.tick = (dt, active) => {
+    age += dt;
+    const fade = active ? Math.min(1, age * 4) * Math.min(1, active.t / 0.8) : 0;
+    for (const p of puffs) {
+      const grow = Math.min(1, age * 3);
+      p.sp.position.set(cx + p.ox * grow, p.oy + Math.sin(age * 0.8 + p.ox) * 0.08, cz + p.oz * grow);
+      p.sp.scale.setScalar(p.s * (0.5 + grow * 0.6));
+      p.sp.material.opacity = fade * 0.8;
+    }
+    g.visible = fade > 0.01;
+  };
+  return g;
 }

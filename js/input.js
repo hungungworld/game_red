@@ -12,6 +12,8 @@ export const input = {
   stick: { x: 0, y: 0, on: false },
   sneakToggle: false,
   dashQueued: false,
+  cardQueued: false, // Q · 카드 총
+  smokeQueued: false, // F · 연막탄
   down(code) { return keys.has(code); },
   hit(code) { return pressed.has(code); },
   on(fn) { listeners.add(fn); return () => listeners.delete(fn); },
@@ -30,6 +32,8 @@ window.addEventListener('keydown', (e) => {
   if (!keys.has(e.code)) pressed.add(e.code);
   keys.add(e.code);
   if (e.code === 'Space' && !e.repeat) input.dashQueued = true;
+  if (e.code === 'KeyQ' && !e.repeat) input.cardQueued = true;
+  if (e.code === 'KeyF' && !e.repeat) input.smokeQueued = true;
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
   for (const fn of listeners) fn('keydown', e);
 });
@@ -58,6 +62,8 @@ export function pollInput() {
 export function endFrame() {
   pressed.clear();
   input.dashQueued = false;
+  input.cardQueued = false;
+  input.smokeQueued = false;
 }
 
 // ---------- 모바일 패드 ----------
@@ -77,6 +83,10 @@ function buildPad() {
   pad.id = 'pad';
   pad.innerHTML = `
     <div class="zone"><div class="base"><div class="knob"></div></div></div>
+    <div class="kit">
+      <button class="b k card" data-b="card" hidden><span>카드</span><em>0</em></button>
+      <button class="b k smoke" data-b="smoke" hidden><span>연막</span><em>0</em></button>
+    </div>
     <div class="btns">
       <button class="b sneak" data-b="sneak"><span>살금</span></button>
       <button class="b dash" data-b="dash"><span>대시</span></button>
@@ -132,6 +142,8 @@ function buildPad() {
     e.preventDefault();
   });
   pad.querySelector('.dash').addEventListener('pointerdown', (e) => { input.dashQueued = true; e.preventDefault(); });
+  pad.querySelector('.card').addEventListener('pointerdown', (e) => { input.cardQueued = true; e.preventDefault(); });
+  pad.querySelector('.smoke').addEventListener('pointerdown', (e) => { input.smokeQueued = true; e.preventDefault(); });
   const act = pad.querySelector('.act');
   act.addEventListener('pointerdown', (e) => { input.btnInteract = true; act.setPointerCapture(e.pointerId); e.preventDefault(); });
   act.addEventListener('pointerup', () => { input.btnInteract = false; });
@@ -143,4 +155,14 @@ export function setPadAction(label) {
   const act = pad.querySelector('.act');
   act.classList.toggle('ready', !!label);
   act.querySelector('span').textContent = label || '조작';
+}
+
+// 현장 도구 버튼: 가진 것만 보이고, 남은 수를 적는다
+export function setPadKit(kit) {
+  if (!pad) return;
+  for (const k of ['card', 'smoke']) {
+    const b = pad.querySelector(`.${k}`);
+    b.hidden = !kit[k];
+    b.querySelector('em').textContent = kit[k] || 0;
+  }
 }

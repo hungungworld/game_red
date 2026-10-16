@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="description" content="3분 안에 끝나는 잠입 미니게임. 설치·가입 없이 지금 바로 방문하세요.">
+<meta name="description" content="수집가 모로가 바꿔치기한 다섯 점의 진품을 되찾는 4분짜리 잠입 게임. 설치·가입 없이 지금 바로.">
 <title>코드네임: 레드</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
@@ -50,6 +50,7 @@
 
   <div id="radio" aria-live="polite"></div>
   <div id="objective"></div>
+  <div id="kit" hidden></div>
   <div id="prompt" hidden><i></i><b>E 길게</b><span>퓨즈 내리기</span></div>
   <div id="hint"></div>
   <div id="toast"></div>
@@ -57,7 +58,7 @@
 
   <section id="screen-title" class="screen">
     <header class="masthead">
-      <p class="eyebrow">Maison de Paris · Saison 1</p>
+      <p class="eyebrow">Hôtel Moreau · Saison 1</p>
       <h1><span class="eyebrow">Codename</span>Red</h1>
       <p class="kr">코드네임: 레드</p>
     </header>
@@ -76,6 +77,8 @@
       <p class="diff-note" id="diff-note" aria-live="polite"></p>
       <button class="primary" data-nav="start">방문 시작</button>
       <div class="links">
+        <button class="link" data-nav="story">이야기</button>
+        <span class="dot"></span>
         <button class="link" data-nav="guide">방문 방법</button>
         <span class="dot"></span>
         <button class="link" data-nav="salon">나의 살롱</button>
@@ -94,7 +97,7 @@
     </header>
     <div class="book" id="book"></div>
     <div class="salon-meta" id="salon-meta"></div>
-    <p class="foot">피스를 누르면 그 피스를 회수하러 방문합니다.</p>
+    <p class="foot">피스를 누르면 그 피스를 되찾으러 모로 저택에 방문합니다.</p>
   </section>
 
   <section id="screen-settings" class="screen" hidden>

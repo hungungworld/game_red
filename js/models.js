@@ -1,12 +1,11 @@
 // 3D 모델: 레드(와 관리인), 컬렉션 피스 5종, 레드 박스, 샹들리에, 방문 카드
-import { THREE, MAT, additive, glowTex } from './gfx.js';
+import { THREE, MAT, glowTex } from './gfx.js';
 import { drawCard } from './figures.js';
 
 const V = (x, y, z = 0) => new THREE.Vector3(x, y, z);
 
 // ---------- 인물 (레드 · 관리인) ----------
 // 키 약 1.8m. 루트는 바닥, +z 방향을 바라본다. 코트는 선반(lathe) 실루엣.
-const cyl = new THREE.CylinderGeometry(1, 1, 1, 12);
 const cap = (r, l) => new THREE.CapsuleGeometry(r, l, 6, 14);
 
 function coatGeo(len) {
@@ -183,14 +182,6 @@ export class Humanoid {
       });
     }
     this.group.traverse((o) => { if (o.isMesh) o.material.opacity = a; });
-  }
-}
-
-// 이전 이름 호환
-export class Figure extends Humanoid {
-  constructor({ material, hat = 'fedora', scale = 1 } = {}) {
-    super({ hat, scale, scarf: hat !== 'cap', coat: hat === 'cap' ? 0x1b2233 : 0x0b0b0e, coatLen: hat === 'cap' ? 0.3 : 0.46 });
-    void material;
   }
 }
 
@@ -586,22 +577,4 @@ export function buildCard() {
   const m = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.004, 0.224), [side, side, face, side, side, side]);
   m.castShadow = true;
   return m;
-}
-
-// 레이저 한 줄 (Y축 방향 길이 1, 위치·크기는 바깥에서)
-export function buildBeam() {
-  const g = new THREE.Group();
-  const core = new THREE.Mesh(cyl, new THREE.MeshBasicMaterial({ color: 0xffd6d6, transparent: true, toneMapped: false }));
-  core.scale.set(0.006, 1, 0.006);
-  const glow = new THREE.Mesh(cyl, additive(0xff1030, 0.4));
-  glow.scale.set(0.014, 1, 0.014);
-  const halo = new THREE.Mesh(cyl, additive(0xff0020, 0.08));
-  halo.scale.set(0.04, 1, 0.04);
-  g.add(core, glow, halo);
-  g.userData.set = (a) => {
-    core.material.opacity = a > 0.1 ? a : 0;
-    glow.material.opacity = 0.4 * a + 0.02;
-    halo.material.opacity = 0.08 * a;
-  };
-  return g;
 }

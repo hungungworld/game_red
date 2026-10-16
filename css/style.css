@@ -536,3 +536,41 @@ body.touch #vaultui { bottom: calc(var(--sb) + 96px); }
   .g-art { grid-column: 1; grid-row: 1 / span 6; }
   .g-step { margin-top: 2px; }
 }
+
+/* 현장 도구: 모바일 버튼 (행동 버튼 위) */
+#pad .kit { position: absolute; right: 18px; bottom: calc(var(--sb) + 202px); display: flex; gap: 12px; pointer-events: auto; }
+#pad .kit .b { width: 58px; height: 58px; font-size: 11px; position: relative; border-color: rgba(255, 140, 150, .6); }
+#pad .kit .b[hidden] { display: none; }
+#pad .kit .b.smoke { border-color: rgba(200, 210, 230, .6); }
+#pad .kit .b em { position: absolute; right: -4px; top: -4px; min-width: 20px; height: 20px; border-radius: 10px; background: var(--gold-l); color: #121111; font: 500 11px/20px var(--label); font-style: normal; }
+#pad .kit .b:active { background: rgba(217, 185, 121, .3); }
+
+/* 현장 도구: 목표 줄 아래 작은 띠 */
+#kit { position: absolute; left: 0; right: 0; top: calc(var(--st) + 44px); z-index: 3; display: flex; justify-content: center; gap: 14px; pointer-events: none; }
+#kit:empty, #kit[hidden] { display: none; }
+#kit span { font-size: 11px; color: rgba(239, 232, 220, .82); display: inline-flex; align-items: center; gap: 6px; }
+#kit span.off { opacity: .35; }
+#kit kbd { font: 400 9px/1 var(--label); letter-spacing: .1em; padding: 3px 5px; border: 1px solid rgba(217, 185, 121, .5); color: var(--gold-l); border-radius: 3px; }
+#kit b { font-weight: 400; color: var(--gold-l); }
+#kit .flash { animation: kitflash .8s; }
+@keyframes kitflash { 0%, 40% { color: #fff; text-shadow: 0 0 10px var(--gold-l); } }
+@media (max-width: 699px) { #kit { top: calc(var(--st) + 84px); } #radio { top: calc(var(--st) + 112px) !important; } }
+body:not(.touch) #radio { top: calc(var(--st) + 96px); }
+
+/* 브리핑: 지니고 가는 도구 · 에필로그 문단 */
+.brief .kitline { text-align: left; margin-top: 4px; }
+.brief .kitline b { display: block; font-weight: 400; color: var(--gold); letter-spacing: .08em; margin-bottom: 2px; }
+.brief .kitline small { color: var(--ink-2); font-size: 11px; }
+.night-panel .op { font-family: var(--serif); font-size: 14px; line-height: 1.85; margin: 0 0 12px; color: rgba(239, 232, 220, .88); text-align: left; }
+.g-panther { fill: rgba(217, 185, 121, .14); stroke: #d9b979; stroke-width: 1.1; animation: pounce 2.8s ease-in-out infinite; transform-box: fill-box; }
+@keyframes pounce { 0%, 100% { transform: translateX(14px); opacity: .5; } 50% { transform: translateX(-10px); opacity: 1; } }
+.g-body b { font-weight: 500; color: var(--gold); }
+.guide-ov.story .g-head { font-style: italic; }
+@media (prefers-reduced-motion: reduce) { .g-panther { animation: none; } }
+.salon-meta .tools p { margin: 0; font-size: 12px; line-height: 1.7; color: var(--ink-2); }
+.salon-meta .tools p b { color: var(--ink); margin-right: 6px; }
+.salon-meta .tools p.off { opacity: .55; }
+.salon-meta small { color: var(--ink-2); }
+.tagline small { font-size: 11px; color: var(--ink-2); letter-spacing: .04em; }
+.links { flex-wrap: wrap; gap: 8px 14px; }
+#kit span { background: rgba(5, 4, 4, .62); padding: 4px 9px; border: 1px solid rgba(217, 185, 121, .18); }
