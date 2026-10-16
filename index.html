@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="description" content="3분 안에 끝나는 잠입 미니게임. 설치·가입 없이 지금 바로 방문하세요.">
+<title>코드네임: 레드</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500&family=Noto+Serif+KR:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+  <canvas id="stage"></canvas>
+  <div id="edge"></div>
+
+  <div id="hud" hidden>
+    <div class="gaze">
+      <span class="label">시선</span>
+      <div class="bar"><i></i></div>
+    </div>
+    <svg class="tank" viewBox="0 0 40 56" aria-hidden="true">
+      <rect x="12" y="1" width="16" height="6" class="strap"/>
+      <rect x="12" y="49" width="16" height="6" class="strap"/>
+      <rect x="3" y="6" width="5" height="44" rx="1.5" class="case"/>
+      <rect x="32" y="6" width="5" height="44" rx="1.5" class="case"/>
+      <rect x="7" y="9" width="26" height="38" rx="2" class="case"/>
+      <rect x="10.5" y="12.5" width="19" height="31" class="dial"/>
+      <g class="idx">
+        <line x1="20" y1="14" x2="20" y2="17"/><line x1="20" y1="39" x2="20" y2="42"/>
+        <line x1="12" y1="28" x2="15" y2="28"/><line x1="25" y1="28" x2="28" y2="28"/>
+      </g>
+      <line id="tank-hand" x1="20" y1="28" x2="20" y2="16.5" class="hand"/>
+      <circle cx="20" cy="28" r="1.1" class="pin"/>
+    </svg>
+  </div>
+
+  <div id="radio" aria-live="polite"></div>
+  <div id="hint"></div>
+  <div id="toast"></div>
+
+  <section id="screen-title" class="screen">
+    <div class="title-top">
+      <p class="kicker">CODENAME</p>
+      <h1>코드네임:<br><em>레드</em></h1>
+      <p class="tagline">레이저를 피하고, 금고를 열고,<br>방문 카드 한 장만 남긴다.</p>
+    </div>
+    <div class="title-bottom">
+      <div class="request" id="daily">
+        <span class="small">오늘 밤의 의뢰</span>
+        <strong id="daily-name"></strong>
+      </div>
+      <div class="seg" id="diff" role="radiogroup" aria-label="난이도">
+        <button data-diff="apprentice" role="radio">견습</button>
+        <button data-diff="pro" role="radio">프로</button>
+        <button data-diff="legend" role="radio">전설</button>
+      </div>
+      <button class="primary" data-nav="start">방문 시작</button>
+      <div class="links">
+        <button class="link" data-nav="salon">나의 살롱</button>
+        <span class="dot"></span>
+        <button class="link" data-nav="settings">설정</button>
+      </div>
+      <p class="foot">설치·가입 없이 바로 플레이 · 이어폰 권장 · 세로 화면</p>
+    </div>
+  </section>
+
+  <section id="screen-salon" class="screen" hidden>
+    <header class="bar-top">
+      <button class="link back" data-nav="title">← 돌아가기</button>
+      <h2>나의 살롱</h2>
+    </header>
+    <p class="salon-sub">시즌 1 · 파리 메종 — 컬렉션 북</p>
+    <div class="book" id="book"></div>
+    <div class="salon-meta" id="salon-meta"></div>
+    <p class="foot">피스를 누르면 그 피스를 회수하러 방문합니다.</p>
+  </section>
+
+  <section id="screen-settings" class="screen" hidden>
+    <header class="bar-top">
+      <button class="link back" data-nav="title">← 돌아가기</button>
+      <h2>설정</h2>
+    </header>
+    <div class="settings">
+      <label class="row"><span>사운드<small>느린 재즈, 금고의 째깍과 딸깍</small></span><input type="checkbox" data-set="sound"></label>
+      <label class="row"><span>진동<small>지원 기기에서만 동작 (iOS 사파리는 미지원)</small></span><input type="checkbox" data-set="haptics"></label>
+      <label class="row"><span>금빛 번짐<small>소리 없이도 금고 정답 근처를 눈으로 확인</small></span><input type="checkbox" data-set="assist"></label>
+      <label class="row"><span>판정 범위 완화<small>접근성 옵션 · 켜면 전설 등급과 팬더 인장은 기록되지 않습니다</small></span><input type="checkbox" data-set="easy"></label>
+      <button class="link danger" data-nav="reset">기록 지우기</button>
+    </div>
+  </section>
+
+  <section id="overlay" class="screen" hidden></section>
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
