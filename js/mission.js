@@ -6,11 +6,12 @@ import { haptics } from './haptics.js';
 import { store } from './store.js';
 import { el, radio, clearRadio, hint, edge, setGaze, setWatch, overlay, closeOverlay, toast } from './ui.js';
 import { getShowcase, Reveal, drawBlank } from './scenes.js';
-import { Corridor } from './stages/corridor.js';
+import { Heist } from './stages/heist.js';
+import { LEVELS } from './levels.js';
 import { Vault } from './stages/vault.js';
 import { Swap } from './stages/swap.js';
 
-const S_TIME = 180;
+const S_TIME = 300;
 
 export class Mission {
   constructor({ piece, diff, onExit }) {
@@ -21,13 +22,17 @@ export class Mission {
     this.mods = { ...this.store.tools, easy: !!s.easy };
     this.onExit = onExit;
     this.flow = [
-      { key: 'laser', zone: '붉은 복도', sub: '1단계 · 레이저 회랑', make: () => new Corridor(this, 'laser', 'arch') },
-      { key: 'patrol', zone: '회랑의 끝', sub: '야간 관리인의 시선', make: () => new Corridor(this, 'patrol', 'vault') },
+      { key: 'gallery', zone: '갤러리 회랑', sub: '1단계 · 잠입', make: () => new Heist(this, 'gallery') },
       { key: 'vault', zone: '지하 금고실', sub: `2단계 · ${piece.vault === 'love' ? 'Love' : 'Trinity'} 금고`, make: () => new Vault(this) },
-      { key: 'patrol2', zone: '계단 회랑', sub: '야간 관리인의 시선', make: () => new Corridor(this, 'patrol', 'curtain') },
-      { key: 'swap', zone: '비밀 전시실', sub: '3단계 · 벨벳 레플리카', make: () => new Swap(this) },
+      { key: 'ante', zone: '비밀 전시실 앞', sub: '3단계 · 잠입', make: () => new Heist(this, 'antechamber') },
+      { key: 'swap', zone: '비밀 전시실', sub: '4단계 · 벨벳 레플리카', make: () => new Swap(this) },
     ];
+
     this.gaze = 0;
+    this.gazeFloor = 0;
+    this.peakGaze = 0;
+    this.emblems = 0;
+    this.alerted = false;
     this.stageGaze = 0;
     this.elapsed = 0;
     this.perfects = 0;
@@ -57,7 +62,7 @@ export class Mission {
         <h2>${this.piece.name}</h2>
         <p class="eyebrow dim">${this.piece.line}</p>
         <div class="ops"><span class="eyebrow">Operator</span>${lines}</div>
-        <p class="meta">붉은 복도 → 지하 금고실 → 비밀 전시실 · 약 3분</p>
+        <p class="meta">갤러리 회랑 → 지하 금고실 → 비밀 전시실 · 약 4분</p>
         <button class="primary" data-a="go">방문 시작</button>
         <button class="link" data-a="back">돌아가기</button>
       </div>`, { cls: 'paper', onAction: (a) => (a === 'go' ? this.begin() : this.exit()) });
@@ -74,6 +79,9 @@ export class Mission {
 
   enterStage(i) {
     this.idx = i;
+    if (this.retrying) this.emblems = this.stageStartEmblems ?? this.emblems;
+    this.retrying = false;
+    this.stageStartEmblems = this.emblems;
     this.stageStartGaze = this.gaze;
     this.stageGaze = 0;
     this.state = 'transition';
@@ -109,14 +117,24 @@ export class Mission {
   }
 
   // ---------- 공통 규칙 ----------
-  addGaze(n, kind, silent = false) {
+  addGaze(n, kind, silent = false, permanent = false) {
     if (this.state !== 'play') return;
     this.gaze = clamp(this.gaze + n, 0, 100);
+    if (permanent || kind !== 'seen') this.gazeFloor = Math.min(100, this.gazeFloor + n);
+    this.peakGaze = Math.max(this.peakGaze, this.gaze);
     this.stageGaze += n;
     audio.tempo = 76 + this.gaze * 0.45;
     setGaze(this.gaze);
     if (!silent) this.warnPulse();
     if (this.gaze >= 100) this.reveal('gaze');
+  }
+
+  // 시야에서 벗어나 있으면 관찰로 쌓인 시선은 천천히 식는다 (레이저·실수로 쌓인 몫은 남는다)
+  relax(n) {
+    if (this.state !== 'play' || this.gaze <= this.gazeFloor) return;
+    this.gaze = Math.max(this.gazeFloor, this.gaze - n);
+    audio.tempo = 76 + this.gaze * 0.45;
+    setGaze(this.gaze);
   }
 
   warnPulse() {
@@ -194,6 +212,8 @@ export class Mission {
   retry() {
     closeOverlay();
     this.gaze = this.stageStartGaze;
+    this.gazeFloor = Math.min(this.gazeFloor, this.gaze);
+    this.retrying = true;
     setGaze(this.gaze);
     audio.tempo = 76 + this.gaze * 0.45;
     audio.startMusic();
@@ -219,9 +239,10 @@ export class Mission {
     audio.stopMusic(1.2);
     el.hud.hidden = true;
     const t = this.elapsed;
+    const hits = (this.stats.gallery?.hits || 0) + (this.stats.ante?.hits || 0);
     let grade = 'B';
-    if (this.gaze <= 30) grade = 'A';
-    if (this.gaze === 0 && this.revealed === 0 && this.perfects >= 2 && t <= S_TIME) grade = 'S';
+    if (this.peakGaze <= 50 && this.revealed === 0) grade = 'A';
+    if (hits === 0 && !this.alerted && this.revealed === 0 && this.perfects >= 2 && t <= S_TIME && this.gazeFloor === 0) grade = 'S';
     if (this.mods.easy && grade === 'S') grade = 'A';
 
     const d = store.data;
@@ -247,7 +268,7 @@ export class Mission {
     if (firstRetrieve) give('glove');
     const v = this.stats.vault;
     if (v && v.gaze === 0 && v.timeLeft >= 15 && this.revealed === 0) give('loupe');
-    const l = this.stats.laser;
+    const l = this.stats.gallery;
     if (l && l.hits === 0 && this.revealed === 0) give('monocle');
     store.save();
 
@@ -286,9 +307,9 @@ export class Mission {
         <p class="place">${this.piece.name} — ${seal ? '팬더 인장이 찍힌 진열' : G.place}</p>
         <dl>
           <div><dt>시간</dt><dd>${fmtTime(t)}</dd></div>
-          <div><dt>시선</dt><dd>${Math.round(this.gaze)}%</dd></div>
+          <div><dt>최고 시선</dt><dd>${Math.round(this.peakGaze)}%</dd></div>
           <div><dt>완벽한 손놀림</dt><dd>${this.perfects}</dd></div>
-          <div><dt>팬더의 걸음</dt><dd>${this.pantherSteps}</dd></div>
+          <div><dt>발자국</dt><dd>${this.emblems}<small>/${Object.values(LEVELS).reduce((n, l) => n + l.map.join('').split('P').length - 1, 0)}</small></dd></div>
         </dl>
         ${giftHtml}${note}
         <button class="primary" data-a="share">방문 카드 공유하기</button>
@@ -335,7 +356,7 @@ export class Mission {
 
     if (this.state === 'brief' || this.state === 'done') getShowcase().render(dt);
     else if (this.state === 'reveal' && this.revealScene) this.revealScene.render(this.revealT);
-    else if (this.stage && (this.state === 'play' || this.state === 'clear')) this.stage.render();
+    else if (this.stage && (this.state === 'play' || this.state === 'clear')) this.stage.render(dt);
     else drawBlank();
 
     // 탱크 시계: 제한 시간이 있는 단계는 남은 시간, 아니면 3분 기준

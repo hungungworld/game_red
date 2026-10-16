@@ -6,6 +6,7 @@ import { el, closeOverlay, overlay, toast, clearRadio, hint } from './ui.js';
 import { Mission } from './mission.js';
 import { dayIndex, fmtTime } from './util.js';
 import { initGfx, resizeGfx } from './gfx.js';
+import { input, pollInput, endFrame, isTouch } from './input.js';
 import { getShowcase, queueThumb, processThumbs } from './scenes.js';
 
 const canvas = el.canvas;
@@ -64,6 +65,20 @@ const end = (e) => {
 canvas.addEventListener('pointerup', end);
 canvas.addEventListener('pointercancel', end);
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+canvas.addEventListener('wheel', (e) => {
+  if (mission?.state === 'play' && mission.stage?.wheel) {
+    mission.stage.wheel(e.deltaY);
+    e.preventDefault();
+  }
+}, { passive: false });
+input.on((type, e) => {
+  if (type !== 'keydown' || e.repeat) return;
+  audio.unlock();
+  if (e.code === 'Escape' && mission?.state === 'play') {
+    if (mission.paused) resume(); else pause();
+  }
+});
+document.body.classList.toggle('touch', isTouch);
 document.addEventListener('gesturestart', (e) => e.preventDefault());
 
 // ---------- 루프 ----------
@@ -72,8 +87,10 @@ function frame(now) {
   last = now;
   t += dt;
   processThumbs();
+  pollInput();
   if (mission) mission.frame(dt, W, H);
   else getShowcase().render(dt);
+  endFrame();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
@@ -192,22 +209,26 @@ function startMission(piece) {
 }
 
 // ---------- 일시정지 ----------
+function pause() {
+  if (!mission || mission.state !== 'play' || mission.paused) return;
+  mission.paused = true;
+  mission.stage?.up?.({ x: 0, y: 0 });
+  activePointer = null;
+  audio.suspend();
+  overlay(`<div class="pause fade-in"><h2>잠시 숨을 고릅니다</h2><div class="stack"><button class="primary" data-a="resume">계속하기</button><button class="link" data-a="quit">메종을 떠나기</button></div></div>`, {
+    cls: 'dim',
+    onAction: (a) => (a === 'resume' ? resume() : mission.exit()),
+  });
+}
+function resume() {
+  closeOverlay();
+  audio.resume();
+  if (mission) mission.paused = false;
+}
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     audio.suspend();
-    if (mission && mission.state === 'play') {
-      mission.paused = true;
-      mission.stage?.up?.({ x: 0, y: 0 });
-      activePointer = null;
-      overlay(`<div class="pause fade-in"><h2>잠시 숨을 고릅니다</h2><button class="primary" data-a="resume">계속하기</button></div>`, {
-        cls: 'dim',
-        onAction: () => {
-          closeOverlay();
-          audio.resume();
-          mission.paused = false;
-        },
-      });
-    }
+    pause();
   } else if (!mission || !mission.paused) audio.resume();
 });
 

@@ -1,5 +1,5 @@
 // 메뉴용 쇼케이스(아이보리 스튜디오의 레드 박스·피스), 정체 드러남 장면, 썸네일
-import { THREE, K, MAT, getEnv, getRenderer, draw, marbleTex, glowTex, additive, fitDist } from './gfx.js';
+import { THREE, K, MAT, getEnv, getRenderer, draw, marbleTex, glowTex, additive, fitDist, isWide } from './gfx.js';
 import { Figure, buildPiece, buildRedBox, buildChandelier } from './models.js';
 import { clamp } from './util.js';
 
@@ -10,6 +10,7 @@ class Showcase {
   constructor() {
     const scene = new THREE.Scene();
     this.scene = scene;
+    scene.userData.fx = { bloom: 0.25, threshold: 0.96, grain: 0.022, vignette: 0.12 };
     this.bg = new THREE.Color(IVORY);
     scene.background = this.bg;
     scene.environment = getEnv();
@@ -85,6 +86,7 @@ class Showcase {
     this.darkFloor.visible = dark;
     this.floor.visible = !dark;
     this.hemi.intensity = dark ? 0.08 : 0.8;
+    this.scene.userData.fx = dark ? { bloom: 0.8, threshold: 0.85, grain: 0.05, vignette: 0.6 } : { bloom: 0.25, threshold: 0.96, grain: 0.022, vignette: 0.12 };
     this.key.intensity = dark ? 0.25 : 1.7;
     this.spot.intensity = dark ? 60 : 0;
     this.scene.environmentIntensity = dark ? 0.6 : 1.0;
@@ -97,6 +99,7 @@ class Showcase {
     this.t += dt;
     const t = this.t;
     const lid = this.box.userData.lid;
+    const wide = isWide();
     if (this.mode === 'title') {
       lid.rotation.x = -1.95;
       this.box.position.set(0, 0, 0);
@@ -107,7 +110,7 @@ class Showcase {
         this.cur.rotation.set(0, t * 0.5, 0);
       }
       const a = Math.sin(t * 0.12) * 0.35;
-      const dd = fitDist(this.cam, 1.1, 0.8);
+      const dd = fitDist(this.cam, 1.1, wide ? 1.05 : 0.8);
       this.cam.position.set(Math.sin(a) * dd, dd * 0.42, Math.cos(a) * dd);
       this.cam.lookAt(0, 0.38, 0);
     } else if (this.mode === 'redbox') {
@@ -133,11 +136,11 @@ class Showcase {
         this.cur.position.set(0, 0.85 + Math.sin(t * 1.1) * 0.02, 0);
         this.cur.rotation.set(0, t * 0.55, 0);
       }
-      const dd = fitDist(this.cam, 0.62, 0.62);
+      const dd = fitDist(this.cam, 0.62, wide ? 0.95 : 0.62);
       this.cam.position.set(0, 0.85 + dd * 0.18, dd);
       this.cam.lookAt(0, 0.8, 0);
     }
-    draw(this.scene, this.cam, this.offsetY);
+    draw(this.scene, this.cam, wide ? 0 : this.offsetY, wide ? 0.21 : 0);
   }
 }
 
@@ -152,6 +155,7 @@ export class Reveal {
   constructor() {
     const scene = new THREE.Scene();
     this.scene = scene;
+    scene.userData.fx = { bloom: 1.0, threshold: 0.85, grain: 0.05, vignette: 0.6 };
     scene.background = new THREE.Color(0x020202);
     scene.environment = getEnv();
     scene.environmentIntensity = 0.15;

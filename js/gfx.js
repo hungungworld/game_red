@@ -1,6 +1,28 @@
 // 3D 렌더러, 환경광, 재질, 절차적 텍스처. 모든 장면이 이 렌더러 하나를 공유합니다.
 import * as THREE from 'three';
 import { RoomEnvironment } from '../vendor/RoomEnvironment.js';
+import { EffectComposer } from '../vendor/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from '../vendor/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from '../vendor/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from '../vendor/jsm/postprocessing/OutputPass.js';
+import { ShaderPass } from '../vendor/jsm/postprocessing/ShaderPass.js';
+
+// 필름 그레인 + 비네트 (출력 직후, sRGB 공간)
+const FilmShader = {
+  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uGrain: { value: 0.045 }, uVignette: { value: 0.35 } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform float uTime; uniform float uGrain; uniform float uVignette; varying vec2 vUv;
+    float rnd(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233)) + uTime) * 43758.5453); }
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      vec2 q = vUv - 0.5;
+      float v = smoothstep(0.85, 0.2, length(q * vec2(1.0, 0.9)));
+      c.rgb *= mix(1.0, v, uVignette);
+      c.rgb += (rnd(vUv * 1000.0) - 0.5) * uGrain;
+      gl_FragColor = c;
+    }`,
+};
 
 export { THREE };
 
@@ -30,11 +52,30 @@ export function initGfx(canvas) {
   const pmrem = new THREE.PMREMGenerator(renderer);
   env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
   pmrem.dispose();
+  const rt = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: 4 });
+  composer = new EffectComposer(renderer, rt);
+  renderPass = new RenderPass(new THREE.Scene(), new THREE.PerspectiveCamera());
+  bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.8, 0.45, 0.9);
+  film = new ShaderPass(FilmShader);
+  composer.addPass(renderPass);
+  composer.addPass(bloom);
+  composer.addPass(new OutputPass());
+  composer.addPass(film);
   return renderer;
 }
 
+let composer = null;
+let renderPass = null;
+let bloom = null;
+let film = null;
+let clock = 0;
+export let quality = 'high';
+export function setQuality(q) { quality = q; }
+
 export const getEnv = () => env;
 export const getAspect = () => W / H;
+// 가로 화면(PC): 3D 보석은 왼쪽, 글은 오른쪽 기둥
+export const isWide = () => W > 900 && W / H > 1.1;
 
 // 세로 화면에서도 반폭·반높이가 모두 들어오도록 카메라 거리 계산
 export function fitDist(cam, halfW, halfH) {
@@ -48,15 +89,33 @@ export function resizeGfx(w, h, dpr) {
   H = h;
   renderer.setPixelRatio(dpr);
   renderer.setSize(w, h, false);
+  composer.setPixelRatio(dpr);
+  composer.setSize(w, h);
+  bloom.resolution.set(w / 2, h / 2);
 }
 
 // offsetY > 0 이면 피사체가 화면 위쪽으로 (메뉴 화면에서 위 40%에 보석을 띄울 때)
-export function draw(scene, cam, offsetY = 0) {
+export function draw(scene, cam, offsetY = 0, offsetX = 0) {
   cam.aspect = W / H;
-  if (offsetY) cam.setViewOffset(W, H, 0, offsetY * H, W, H);
+  if (offsetY || offsetX) cam.setViewOffset(W, H, offsetX * W, offsetY * H, W, H);
   else if (cam.view) cam.clearViewOffset();
   cam.updateProjectionMatrix();
-  renderer.render(scene, cam);
+  const fx = scene.userData.fx;
+  if (quality === 'low' || !fx) {
+    renderer.render(scene, cam);
+    return;
+  }
+  renderPass.scene = scene;
+  renderPass.camera = cam;
+  bloom.strength = fx.bloom ?? 0.8;
+  bloom.threshold = fx.threshold ?? 0.9;
+  bloom.radius = fx.radius ?? 0.45;
+  bloom.enabled = bloom.strength > 0;
+  clock = (clock + 0.017) % 10;
+  film.uniforms.uTime.value = clock;
+  film.uniforms.uGrain.value = fx.grain ?? 0.045;
+  film.uniforms.uVignette.value = fx.vignette ?? 0.35;
+  composer.render();
 }
 
 // ---------- 재질 ----------
@@ -68,6 +127,7 @@ export const MAT = {
   goldSatin: () => once('goldSatin', () => new THREE.MeshPhysicalMaterial({ color: COLORS.gold, metalness: 1, roughness: 0.42 })),
   rose: () => once('rose', () => new THREE.MeshPhysicalMaterial({ color: COLORS.rose, metalness: 1, roughness: 0.2 })),
   white: () => once('white', () => new THREE.MeshPhysicalMaterial({ color: COLORS.white, metalness: 1, roughness: 0.16 })),
+  lacquerBlack: () => once('lacquerBlack', () => new THREE.MeshPhysicalMaterial({ color: 0x0a0909, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.06 })),
   onyx: () => once('onyx', () => new THREE.MeshPhysicalMaterial({ color: 0x050505, roughness: 0.08, clearcoat: 1 })),
   emerald: () => once('emerald', () => new THREE.MeshPhysicalMaterial({ color: 0x0b8a4c, roughness: 0.04, clearcoat: 1, emissive: 0x03331b, emissiveIntensity: 0.6 })),
   lacquer: () => once('lacquer', () => new THREE.MeshPhysicalMaterial({ color: 0x5e0610, roughness: 0.42, clearcoat: 0.8, clearcoatRoughness: 0.1, envMapIntensity: 0.35 })),

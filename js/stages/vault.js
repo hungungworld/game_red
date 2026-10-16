@@ -4,6 +4,7 @@ import { THREE, MAT, getEnv, marbleTex, additive, barMatrix, instanced, draw, fi
 import { audio } from '../audio.js';
 import { haptics } from '../haptics.js';
 import { radio, hint, edge } from '../ui.js';
+import { input, isTouch } from '../input.js';
 
 const NEAR = 8;
 const OVERSHOOT = 38;
@@ -32,6 +33,9 @@ export class Vault {
     this.lockFx = 0;
     this.overshoots = 0;
     this.done = false;
+    this.watch = null;
+    this.stepT = m.diff.id === 'apprentice' ? 999 : 9 + Math.random() * 4;
+    this.turnedInWatch = 0;
   }
 
   get ring() { return this.type === 'love' ? 0 : this.idx; }
@@ -53,7 +57,7 @@ export class Vault {
       ? '드라이버를 천천히 돌려. 째깍이 빨라지면 가까운 거다.'
       : '링을 하나씩 돌려. 째깍이 빨라지면 가까운 거다.', 3400);
     radio('맞았다 싶으면 손을 멈추고 기다려.', 2600);
-    hint('원을 따라 천천히 돌리기 · 정답에서 0.5초 멈추기', this.m.store.tutorialDone ? 6000 : 0);
+    hint(isTouch ? '원을 따라 천천히 돌리기 · 정답에서 0.5초 멈추기' : '마우스 드래그 · 휠 · A/D 회전 (Shift 정밀) · 정답에서 0.5초 멈추기', this.m.store.tutorialDone ? 7000 : 0);
   }
 
 
@@ -77,13 +81,61 @@ export class Vault {
     let d = ((a - this.drag.a) * 180) / Math.PI;
     d = angDiff(d, 0);
     this.drag.a = a;
-    // 바깥쪽을 잡을수록 정밀하게
+    this.turn(d);
+  }
+
+  // 모든 입력(드래그·키보드·휠)이 이 한 곳으로 모인다
+  turn(d) {
+    if (this.opening >= 0 || !d) return;
     this.angle = (this.angle + d + 360) % 360;
     if (Math.abs(d) > 0.3) this.stillT = 0;
     this.moveAcc += Math.abs(d);
+    this.turnedInWatch += Math.abs(d);
     if (this.moveAcc >= 4) {
       this.moveAcc = 0;
       audio.tick(this.prox() * 0.6, 'move');
+    }
+  }
+
+  wheel(dy) { this.turn(Math.sign(dy) * 1.5); }
+
+  // 키보드: A/D · ←/→ (Shift = 정밀)
+  keys(dt) {
+    const dir = (input.down('KeyD') || input.down('ArrowRight') ? 1 : 0) - (input.down('KeyA') || input.down('ArrowLeft') ? 1 : 0);
+    if (!dir) { this.keyHold = 0; return; }
+    this.keyHold = (this.keyHold || 0) + dt;
+    const fine = input.down('ShiftLeft') || input.down('ShiftRight');
+    const sp = fine ? 10 : Math.min(90, 25 + this.keyHold * 60);
+    this.turn(dir * sp * dt);
+  }
+
+  // 단계 중간에 관리인 발소리: 신호 뒤 2초 동안은 다이얼에서 손을 떼야 한다
+  footsteps(dt) {
+    this.stepT -= dt;
+    if (this.watch === 'warn' && this.stepT <= 0) {
+      this.watch = 'hold';
+      this.stepT = 2.2;
+      this.turnedInWatch = 0;
+      this.warnedTurn = false;
+      document.getElementById('app').classList.add('hush');
+    } else if (this.watch === 'hold') {
+      if (this.turnedInWatch > 3 && !this.warnedTurn) {
+        this.warnedTurn = true;
+        this.m.addGaze(20, 'vault');
+        if (this.m.state === 'play') radio('다이얼 소리를 들었다. 조심해.', 2000);
+      }
+      if (this.stepT <= 0) {
+        this.watch = null;
+        this.stepT = 11 + Math.random() * 6;
+        document.getElementById('app').classList.remove('hush');
+        radio('지나갔다. 계속해.', 1500);
+      }
+    } else if (!this.watch && this.stepT <= 0) {
+      this.watch = 'warn';
+      this.stepT = 1.4;
+      audio.warn();
+      haptics.warn();
+      radio('발소리. 손을 떼고 멈춰.', 2400);
     }
   }
 
@@ -117,6 +169,8 @@ export class Vault {
       this.m.reveal('time');
       return;
     }
+    this.keys(dt);
+    this.footsteps(dt);
     if (this.timeLeft < 10 && !this.warned10) {
       this.warned10 = true;
       radio('10초 남았다.', 1800);
@@ -173,6 +227,7 @@ export class Vault {
   build() {
     const scene = new THREE.Scene();
     this.scene = scene;
+    scene.userData.fx = { bloom: 0.55, threshold: 0.9, grain: 0.04, vignette: 0.5 };
     scene.background = new THREE.Color(0x040404);
     scene.environment = getEnv();
     scene.environmentIntensity = 0.55;
@@ -354,7 +409,7 @@ export class Vault {
     draw(this.scene, this.cam);
   }
 
-  dispose() {}
+  dispose() { document.getElementById('app').classList.remove('hush'); }
 }
 
 function screw(r) {

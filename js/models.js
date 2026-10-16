@@ -1,166 +1,196 @@
 // 3D 모델: 레드(와 관리인), 컬렉션 피스 5종, 레드 박스, 샹들리에, 방문 카드
-import { THREE, K, MAT, additive, glowTex } from './gfx.js';
+import { THREE, MAT, additive, glowTex } from './gfx.js';
 import { drawCard } from './figures.js';
 
 const V = (x, y, z = 0) => new THREE.Vector3(x, y, z);
 
-// ---------- 레드 ----------
-// 발 위치 기준, +x 방향을 바라보는 포즈 (단위: 게임 단위, 키 60)
-export function pose(mode, ph, hatLift = 0) {
-  const s = Math.sin(ph);
-  switch (mode) {
-    case 'walk':
-      return {
-        head: [5, -53],
-        limbs: [
-          [[2, -46], [-1, -27], 8.5],
-          [[-1, -27], [2 + s * 5, -14], [s * 10, 0], 5.5],
-          [[-1, -27], [2 - s * 5, -14], [-s * 10, 0], 5.5],
-          [[2, -43], [3 - s * 4, -35], [2 - s * 8, -29], 3.6],
-        ],
-      };
-    case 'crouch':
-      return {
-        head: [16, -26],
-        limbs: [
-          [[10, -24], [-8, -23], 8.5],
-          [[-8, -23], [-15, -11], [-9, 0], 5.5],
-          [[-8, -23], [-2, -12], [-4, 0], 5.5],
-          [[9, -22], [14, -11], [17, 0], 3.6],
-        ],
-      };
-    case 'slide':
-      return {
-        head: [-13, -15],
-        limbs: [
-          [[-9, -12], [4, -6], 8.5],
-          [[4, -6], [11, -5], [18, -3], 5.5],
-          [[4, -6], [12, -9], [19, -6], 5.5],
-          [[-8, -11], [-12, -6], [-15, -2], 3.6],
-        ],
-      };
-    case 'jump':
-      return {
-        head: [5, -42],
-        limbs: [
-          [[3, -35], [-1, -21], 8.5],
-          [[-1, -21], [8, -16], [-1, -8], 5.5],
-          [[-1, -21], [5, -13], [-6, -9], 5.5],
-          [[3, -33], [8, -33], [11, -31], 3.6],
-        ],
-      };
-    default: {
-      const arm = hatLift > 0
-        ? [[1, -44], [8, -50], [5, -60 - hatLift], 3.6]
-        : [[1, -44], [2, -35], [1, -27], 3.6];
-      return {
-        head: [2, -54],
-        limbs: [
-          [[1, -47], [0, -27], 8.5],
-          [[0, -27], [-2, -13], [-3, 0], 5.5],
-          [[0, -27], [2, -13], [3, 0], 5.5],
-          arm,
-        ],
-      };
-    }
-  }
+// ---------- 인물 (레드 · 관리인) ----------
+// 키 약 1.8m. 루트는 바닥, +z 방향을 바라본다. 코트는 선반(lathe) 실루엣.
+const cyl = new THREE.CylinderGeometry(1, 1, 1, 12);
+const cap = (r, l) => new THREE.CapsuleGeometry(r, l, 6, 14);
+
+function coatGeo(len) {
+  const pts = [[0, 0.64], [0.12, 0.66], [0.2, 0.6], [0.205, 0.45], [0.18, 0.25], [0.165, 0.08], [0.19, -0.1], [0.23, -len + 0.06], [0.235, -len], [0, -len]];
+  const g = new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), 28);
+  g.scale(1, 1, 0.68);
+  return g;
 }
 
-const cyl = new THREE.CylinderGeometry(1, 1, 1, 12);
-const sph = new THREE.SphereGeometry(1, 16, 12);
-
-export class Figure {
-  constructor({ material = MAT.suit(), hat = 'fedora', scale = 1 } = {}) {
-    this.group = new THREE.Group();
-    this.root = new THREE.Group();
-    this.root.scale.setScalar(scale);
-    this.group.add(this.root);
-    this.mat = material;
-    this.segs = [];
-    this.joints = [];
-    const LZ = [0, 0.09, -0.09, 0.17];
-    this.limbZ = LZ;
-    for (let i = 0; i < 4; i++) {
-      for (let k = 0; k < 2; k++) {
-        const m = new THREE.Mesh(cyl, material);
-        m.castShadow = true;
-        this.root.add(m);
-        this.segs.push(m);
-      }
-      for (let k = 0; k < 3; k++) {
-        const j = new THREE.Mesh(sph, material);
-        j.castShadow = true;
-        this.root.add(j);
-        this.joints.push(j);
-      }
-    }
-    this.head = new THREE.Mesh(sph, material);
-    this.head.scale.setScalar(5.4 * K);
-    this.head.castShadow = true;
-    this.root.add(this.head);
-    this.hat = new THREE.Group();
-    const hatMat = material;
+export class Humanoid {
+  constructor({ coat = 0x0b0b0e, hat = 'fedora', scarf = false, scale = 1, coatLen = 0.46, material } = {}) {
+    const coatMat = material || new THREE.MeshPhysicalMaterial({ color: coat, roughness: 0.62, sheen: 0.6, sheenColor: 0x444455, clearcoat: 0.15 });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x08080a, roughness: 0.45, metalness: 0.2 });
+    const skin = new THREE.MeshStandardMaterial({ color: 0x3b2b24, roughness: 0.7 });
+    this.mats = [coatMat, dark, skin];
+    this.mat = coatMat;
+    const g = new THREE.Group();
+    this.group = g;
+    const root = new THREE.Group();
+    root.scale.setScalar(scale);
+    g.add(root);
+    this.root = root;
+    const hips = new THREE.Group();
+    hips.position.y = 0.95;
+    root.add(hips);
+    this.hips = hips;
+    // 다리
+    this.legs = [-1, 1].map((sx) => {
+      const thigh = new THREE.Group();
+      thigh.position.set(sx * 0.1, 0, 0);
+      const t = new THREE.Mesh(cap(0.075, 0.34), dark);
+      t.position.y = -0.22;
+      thigh.add(t);
+      const knee = new THREE.Group();
+      knee.position.y = -0.45;
+      thigh.add(knee);
+      const sh = new THREE.Mesh(cap(0.062, 0.36), dark);
+      sh.position.y = -0.23;
+      knee.add(sh);
+      const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.07, 0.24), MAT.onyx());
+      shoe.position.set(0, -0.46, 0.05);
+      knee.add(shoe);
+      hips.add(thigh);
+      return { thigh, knee };
+    });
+    // 몸통
+    const torso = new THREE.Group();
+    hips.add(torso);
+    this.torso = torso;
+    const body = new THREE.Mesh(coatGeo(coatLen), coatMat);
+    torso.add(body);
+    this.coat = body;
+    const collar = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.035, 8, 20), scarf ? new THREE.MeshPhysicalMaterial({ color: 0x8a0a16, roughness: 0.55, sheen: 1, sheenColor: 0xff5060 }) : coatMat);
+    collar.rotation.x = Math.PI / 2;
+    collar.position.y = 0.66;
+    torso.add(collar);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.105, 20, 16), skin);
+    head.position.y = 0.8;
+    head.scale.set(0.95, 1.08, 1);
+    torso.add(head);
+    this.head = head;
+    // 모자
+    const hatG = new THREE.Group();
+    hatG.position.y = 0.87;
     if (hat === 'cap') {
-      const crown = new THREE.Mesh(new THREE.SphereGeometry(5.6 * K, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), hatMat);
-      const bill = new THREE.Mesh(new THREE.BoxGeometry(6 * K, 0.6 * K, 7 * K), hatMat);
-      bill.position.set(5 * K, 0, 0);
-      this.hat.add(crown, bill);
+      const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.115, 0.112, 0.09, 24), coatMat);
+      crown.position.y = 0.03;
+      const top = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.115, 0.03, 24), coatMat);
+      top.position.y = 0.085;
+      const bill = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.015, 20, 1, false, -Math.PI / 2, Math.PI), MAT.onyx());
+      bill.position.set(0, -0.005, 0.06);
+      const badge = new THREE.Mesh(new THREE.CircleGeometry(0.022, 12), MAT.gold());
+      badge.position.set(0, 0.04, 0.114);
+      hatG.add(crown, top, bill, badge);
     } else {
-      const brim = new THREE.Mesh(new THREE.CylinderGeometry(9 * K, 9 * K, 0.5 * K, 24), hatMat);
-      const crown = new THREE.Mesh(new THREE.CylinderGeometry(4.3 * K, 5.2 * K, 6.5 * K, 20), hatMat);
-      crown.position.y = 3.3 * K;
-      const band = new THREE.Mesh(new THREE.CylinderGeometry(5.05 * K, 5.25 * K, 1.2 * K, 20), MAT.onyx());
-      band.position.y = 0.9 * K;
-      this.hat.add(brim, crown, band);
+      const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.012, 32), dark);
+      const prof = [[0, 0.15], [0.07, 0.15], [0.105, 0.12], [0.115, 0.0], [0, 0]].map(([r, y]) => new THREE.Vector2(r, y));
+      const crown = new THREE.Mesh(new THREE.LatheGeometry(prof, 24), dark);
+      crown.scale.z = 0.9;
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.117, 0.117, 0.03, 24), scarf ? new THREE.MeshStandardMaterial({ color: 0x8a0a16, roughness: 0.5 }) : MAT.onyx());
+      band.position.y = 0.02;
+      hatG.add(brim, crown, band);
+      hatG.rotation.x = -0.08;
     }
-    this.hat.traverse((o) => { o.castShadow = true; });
-    this.root.add(this.hat);
+    torso.add(hatG);
+    this.hat = hatG;
+    // 팔
+    this.arms = [-1, 1].map((sx) => {
+      const sh = new THREE.Group();
+      sh.position.set(sx * 0.2, 0.58, 0);
+      const up = new THREE.Mesh(cap(0.058, 0.24), coatMat);
+      up.position.y = -0.15;
+      sh.add(up);
+      const el = new THREE.Group();
+      el.position.y = -0.3;
+      sh.add(el);
+      const fo = new THREE.Mesh(cap(0.05, 0.22), coatMat);
+      fo.position.y = -0.13;
+      el.add(fo);
+      const hand = new THREE.Mesh(new THREE.SphereGeometry(0.048, 12, 10), dark);
+      hand.position.y = -0.29;
+      el.add(hand);
+      torso.add(sh);
+      return { sh, el, hand };
+    });
+    g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    this.ph = 0;
+    this.blend = 0;
     this.setPose('stand', 0);
   }
 
-  setPose(mode, ph = 0, { hatLift = 0 } = {}) {
-    const P = pose(mode, ph, hatLift);
-    let si = 0;
-    let ji = 0;
-    P.limbs.forEach((limb, li) => {
-      const w = limb[limb.length - 1];
-      const pts = limb.slice(0, -1).map(([x, y]) => V(x * K, -y * K, this.limbZ[li]));
-      const r = (w / 2) * K;
-      for (let k = 0; k < 2; k++) {
-        const m = this.segs[si++];
-        if (k >= pts.length - 1) { m.visible = false; continue; }
-        m.visible = true;
-        const a = pts[k];
-        const b = pts[k + 1];
-        const len = a.distanceTo(b);
-        m.position.copy(a).add(b).multiplyScalar(0.5);
-        m.scale.set(r, len, r * (li === 0 ? 0.75 : 1));
-        m.rotation.set(0, 0, Math.atan2(b.y - a.y, b.x - a.x) - Math.PI / 2);
-      }
-      for (let k = 0; k < 3; k++) {
-        const j = this.joints[ji++];
-        if (k >= pts.length) { j.visible = false; continue; }
-        j.visible = true;
-        j.position.copy(pts[k]);
-        j.scale.set(r, r, r * (li === 0 ? 0.75 : 1));
-      }
+  // 손에 물건 들기 (관리인 손전등)
+  hold(obj) { this.arms[1].hand.add(obj); }
+
+  // mode: idle | walk | sneak | dash, amt: 0..1 이동량
+  animate(dt, mode, amt = 1) {
+    const rate = mode === 'dash' ? 16 : mode === 'sneak' ? 7 : 9.5;
+    this.ph += dt * rate * Math.max(0.15, amt);
+    const s = Math.sin(this.ph);
+    const c = Math.cos(this.ph);
+    const k = mode === 'idle' ? 0 : amt;
+    const crouch = mode === 'sneak' ? 1 : 0;
+    this.blend += (crouch - this.blend) * Math.min(1, dt * 8);
+    const b = this.blend;
+    const stride = (mode === 'dash' ? 0.9 : mode === 'sneak' ? 0.45 : 0.62) * k;
+    this.hips.position.y = 0.95 - b * 0.2 + Math.abs(c) * 0.03 * k;
+    this.torso.rotation.x = b * 0.42 + (mode === 'dash' ? 0.38 : 0.06 * k);
+    this.legs.forEach(({ thigh, knee }, i) => {
+      const ss = i ? -s : s;
+      thigh.rotation.x = -ss * stride - b * 0.75;
+      knee.rotation.x = Math.max(0, ss) * stride * 1.3 + b * 1.15 + 0.05;
     });
-    const [hx, hy] = P.head;
-    this.head.position.set(hx * K, -hy * K, 0);
-    this.hat.position.set(hx * K, (-hy + 3.6 + hatLift) * K, 0);
-    this.hat.rotation.set(0, 0, hatLift ? 0.3 : mode === 'slide' ? 0.35 : 0);
+    this.arms.forEach(({ sh, el }, i) => {
+      const ss = i ? s : -s;
+      sh.rotation.x = -ss * stride * 0.8 - b * 0.3;
+      sh.rotation.z = (i ? -1 : 1) * 0.06;
+      el.rotation.x = -0.25 - k * 0.3 - b * 0.4;
+    });
+    this.head.rotation.x = -b * 0.3;
+    this.hat.position.y = 0.87;
+    this.hat.rotation.z = 0;
+    if (mode === 'idle') this.hips.position.y += Math.sin(this.ph * 0.25) * 0.004;
+  }
+
+  // 연출용: 'walk'(위상 지정) · 'stand'(+모자 들기)
+  setPose(mode, ph = 0, { hatLift = 0 } = {}) {
+    if (mode === 'walk') {
+      this.ph = ph;
+      this.animate(0, 'walk', 1);
+      return;
+    }
+    this.blend = 0;
+    this.animate(0, 'idle', 0);
+    if (hatLift > 0) {
+      const u = Math.min(1, hatLift / 7);
+      const arm = this.arms[1];
+      arm.sh.rotation.x = -2.6 * u;
+      arm.sh.rotation.z = -0.25 * u;
+      arm.el.rotation.x = -0.9 * u;
+      this.hat.position.y = 0.87 + 0.1 * u;
+      this.hat.rotation.z = -0.35 * u;
+      this.torso.rotation.x = 0.15 * u;
+    }
   }
 
   setOpacity(a) {
     if (a >= 1 && !this.fading) return;
     if (!this.fading) {
       this.fading = true;
-      const m = this.mat.clone();
-      m.transparent = true;
-      this.group.traverse((o) => { if (o.isMesh) o.material = m; });
-      this.fadeMat = m;
+      this.group.traverse((o) => {
+        if (!o.isMesh) return;
+        o.material = o.material.clone();
+        o.material.transparent = true;
+      });
     }
-    this.fadeMat.opacity = a;
+    this.group.traverse((o) => { if (o.isMesh) o.material.opacity = a; });
+  }
+}
+
+// 이전 이름 호환
+export class Figure extends Humanoid {
+  constructor({ material, hat = 'fedora', scale = 1 } = {}) {
+    super({ hat, scale, scarf: hat !== 'cap', coat: hat === 'cap' ? 0x1b2233 : 0x0b0b0e, coatLen: hat === 'cap' ? 0.3 : 0.46 });
+    void material;
   }
 }
 

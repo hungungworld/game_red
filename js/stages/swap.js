@@ -5,6 +5,7 @@ import { Figure, buildPiece, buildCard } from '../models.js';
 import { audio } from '../audio.js';
 import { haptics } from '../haptics.js';
 import { radio, hint, edge } from '../ui.js';
+import { input, isTouch } from '../input.js';
 
 const ROUNDS = 3;
 const GUARD_CYCLE = 5.2;
@@ -48,7 +49,7 @@ export class Swap {
     radio('비밀 전시실. 진열대 압력 센서는 3중이다.', 2600);
     radio('레플리카를 길게 눌러. 금빛 띠에서 손을 떼.', 3200);
     if (this.window) radio('관리인이 진열대 앞을 지나는 2초. 그때만 바꿀 수 있다.', 3400);
-    hint('길게 누르기 — 무게 채우기 · 금빛 띠 안에서 떼기', this.m.store.tutorialDone ? 6000 : 0);
+    hint(isTouch ? '길게 누르기 — 무게 채우기 · 금빛 띠 안에서 떼기' : '마우스 · Space 길게 — 무게 채우기 · 금빛 띠 안에서 떼기', this.m.store.tutorialDone ? 7000 : 0);
   }
 
   guardOpen() {
@@ -104,6 +105,9 @@ export class Swap {
   update(dt) {
     if (this.done) return;
     this.t += dt;
+    // 키보드: Space 길게
+    const sp = input.down('Space') || input.down('Enter');
+    if (sp && !this.keyDown) { this.keyDown = true; this.down(); } else if (!sp && this.keyDown) { this.keyDown = false; this.up(); }
     if (this.state !== 'card') {
       this.timeLeft -= dt;
       if (this.timeLeft <= 0) {
@@ -149,6 +153,7 @@ export class Swap {
   build() {
     const scene = new THREE.Scene();
     this.scene = scene;
+    scene.userData.fx = { bloom: 0.7, threshold: 0.88, grain: 0.045, vignette: 0.55 };
     scene.background = new THREE.Color(0x030202);
     scene.fog = new THREE.Fog(0x030202, 6, 14);
     scene.environment = getEnv();
