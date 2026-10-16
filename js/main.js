@@ -5,6 +5,7 @@ import { haptics } from './haptics.js';
 import { el, closeOverlay, overlay, toast, clearRadio, hint } from './ui.js';
 import { Mission } from './mission.js';
 import { L as T } from './lines.js';
+import { showGuide, isGuideOpen } from './guide.js';
 import { dayIndex, fmtTime } from './util.js';
 import { initGfx, resizeGfx, setQuality } from './gfx.js';
 import { input, pollInput, endFrame, isTouch } from './input.js';
@@ -78,7 +79,7 @@ canvas.addEventListener('wheel', (e) => {
   }
 }, { passive: false });
 input.on((type, e) => {
-  if (type !== 'keydown' || e.repeat) return;
+  if (type !== 'keydown' || e.repeat || isGuideOpen()) return;
   audio.unlock();
   if (e.code === 'Escape' && mission?.state === 'play') {
     if (mission.paused) resume(); else pause();
@@ -153,6 +154,12 @@ function renderTitle() {
   const rec = store.data.pieces[p.id];
   $('#daily-name').textContent = p.name;
   $('#daily-line').textContent = rec ? `${p.line} · 재방문` : p.line;
+  const notes = {
+    apprentice: '관리인이 느리고 감시 카메라가 없습니다. 처음이라면 여기서.',
+    pro: '감시 카메라가 켜지고, 금고를 여는 중에 발소리가 지나갑니다.',
+    legend: '관리인이 한 명 더, 판정이 가장 엄격합니다. 팬더 인장은 여기서만.',
+  };
+  $('#diff-note').textContent = notes[store.data.diff] || notes.apprentice;
   for (const b of document.querySelectorAll('#diff button')) {
     const on = b.dataset.diff === store.data.diff;
     b.classList.toggle('on', on);
@@ -223,6 +230,7 @@ document.addEventListener('click', (e) => {
   audio.unlock();
   const a = n.dataset.nav;
   if (a === 'start') startMission(dailyPiece());
+  else if (a === 'guide') showGuide({ startLabel: '닫기', onDone: () => renderTitle() });
   else if (a === 'reset') {
     if (confirm('살롱의 모든 기록을 지울까요?')) {
       store.reset();
@@ -235,6 +243,18 @@ document.addEventListener('click', (e) => {
 
 function startMission(piece) {
   audio.unlock();
+  // 처음 방문하는 사람에게는 방법부터
+  if (!store.data.guideSeen) {
+    showGuide({
+      closeLabel: '건너뛰고 시작',
+      onDone: () => {
+        store.data.guideSeen = true;
+        store.save();
+        startMission(piece);
+      },
+    });
+    return;
+  }
   for (const s of screens) $(`#screen-${s}`).hidden = true;
   mission = new Mission({
     piece,
@@ -259,6 +279,7 @@ function pause() {
   overlay(`<div class="pause"><p class="eyebrow">Pause</p><h2>${T.pause.title}</h2><div class="stack">
     <button class="primary" data-a="resume">${T.pause.resume}<span class="key">Esc</span></button>
     <button class="ghost light" data-a="restart">${T.pause.restart}<span class="key">R</span></button>
+    <button class="ghost light" data-a="guide">방문 방법 보기</button>
     <button class="ghost light" data-a="sound">사운드 ${snd ? '끄기' : '켜기'}</button>
     <button class="link" data-a="quit">${T.pause.leave}</button></div></div>`, {
     cls: 'dim',
@@ -268,6 +289,10 @@ function pause() {
         resume();
         mission.stage?.dispose?.();
         mission.retry();
+      } else if (a === 'guide') {
+        const at = { gallery: 1, ante: 1, vault: 2, swap: 3 }[mission.flow[mission.idx]?.key] ?? 0;
+        closeOverlay();
+        showGuide({ startAt: at, startLabel: '닫기', closeLabel: '닫기', onDone: () => { mission.paused = false; pause(); } });
       } else if (a === 'sound') {
         store.data.settings.sound = !store.data.settings.sound;
         store.save();

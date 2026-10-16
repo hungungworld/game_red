@@ -429,3 +429,110 @@ body.touch #vaultui { bottom: calc(var(--sb) + 96px); }
 
 /* 바꿔치기: 띠 안에 들어오면 빛난다 */
 #swapui .band.hit { background: rgba(217, 185, 121, .5); box-shadow: 0 0 18px rgba(217, 185, 121, .8); }
+
+/* ---------- 방문 방법 (v0.7) ---------- */
+#overlay.guide-ov {
+  padding: 0; justify-content: center; align-items: center;
+  background: rgba(243, 238, 230, .82); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+}
+.guide {
+  width: min(560px, 100%); max-height: 100%; overflow-y: auto; display: flex; flex-direction: column; gap: 14px;
+  padding: calc(var(--st) + 20px) 22px calc(var(--sb) + 20px); background: var(--paper); text-align: left;
+}
+@media (min-width: 600px) { .guide { max-height: calc(100% - 48px); border: 1px solid var(--line); box-shadow: 0 30px 80px rgba(40, 30, 20, .14); padding: 26px 30px 26px; } }
+.g-top { display: flex; align-items: baseline; justify-content: space-between; }
+.g-head { font-family: var(--serif); font-weight: 300; font-size: 22px; margin: 0; }
+.g-skip { text-decoration: none; font-size: 13px; }
+.g-stage { touch-action: pan-y; }
+.g-card.from-r { animation: gIn .28s ease-out both; --dx: 18px; }
+.g-card.from-l { animation: gIn .28s ease-out both; --dx: -18px; }
+@keyframes gIn { from { opacity: 0; transform: translateX(var(--dx)); } to { opacity: 1; transform: none; } }
+.g-art { background: #0d0b0b; aspect-ratio: 16 / 9; display: grid; place-items: center; overflow: hidden; }
+.g-art svg { width: 100%; height: 100%; display: block; }
+.g-step { font-family: var(--label); font-size: 12px; letter-spacing: .08em; color: var(--ink-2); margin: 16px 0 4px; }
+.g-card h3 { font-family: var(--serif); font-weight: 400; font-size: 23px; line-height: 1.35; margin: 0 0 8px; }
+.g-body { font-size: 15px; line-height: 1.75; margin: 0; max-width: 34em; color: var(--ink); }
+.g-note { font-size: 13px; line-height: 1.7; color: var(--ink-2); margin: 12px 0 0; }
+.g-note b { color: var(--ink); font-weight: 500; }
+.g-ctl { margin: 14px 0 0; border-top: 1px solid var(--line); }
+.g-ctl div { display: grid; grid-template-columns: minmax(118px, auto) 1fr; gap: 14px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.g-ctl dt { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.g-ctl dd { margin: 0; font-size: 13px; color: var(--ink-2); line-height: 1.5; }
+.guide kbd, .guide .pill {
+  display: inline-block; min-width: 26px; padding: 4px 7px 3px; border: 1px solid #b9b0a3; border-bottom-width: 2px; border-radius: 5px;
+  font-family: var(--label); font-size: 12px; color: var(--ink); background: #fbf9f5; text-align: center; line-height: 1.2;
+}
+.guide .pill { border-radius: 14px; padding: 4px 10px 3px; border-bottom-width: 1px; font-family: var(--sans); }
+.g-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 4px; }
+.g-arrow { width: 44px; height: 44px; font-size: 26px; line-height: 1; color: var(--ink); border: 1px solid var(--line); border-radius: 50%; }
+.g-arrow:disabled { opacity: .25; }
+.g-dots { list-style: none; display: flex; gap: 8px; margin: 0; padding: 0; }
+.g-dots button { width: 8px; height: 8px; border-radius: 4px; background: #cfc7ba; transition: width .2s, background .2s; padding: 0; }
+.g-dots button[aria-current="step"] { width: 26px; background: var(--ink); }
+.g-cta { width: 100%; }
+.guide :focus-visible, #screen-title :focus-visible, #overlay :focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+
+/* 그림 */
+.g-art text { font-family: var(--sans); font-size: 11px; fill: rgba(239, 232, 220, .75); text-anchor: middle; }
+.g-art .g-small { font-size: 10px; text-anchor: start; }
+.g-art .g-end { text-anchor: end; }
+.g-path { fill: none; stroke: rgba(217, 185, 121, .55); stroke-width: 1.2; stroke-dasharray: 4 5; }
+.g-node circle, .g-node rect { fill: #0d0b0b; stroke: #d9b979; stroke-width: 1.4; }
+.g-walker { fill: #f4f1ea; }
+.g-track { fill: none; stroke: rgba(239, 232, 220, .3); stroke-width: 1; }
+.g-gaze { fill: #ff3a4a; transform-origin: 66px 139px; animation: gaze 5s ease-in infinite; }
+@keyframes gaze { 0% { transform: scaleX(0); } 80% { transform: scaleX(1); } 100% { transform: scaleX(1); opacity: .2; } }
+.g-floor rect { fill: rgba(239, 232, 220, .05); }
+.g-fan path { fill: rgba(255, 240, 214, .2); stroke: rgba(255, 240, 214, .35); stroke-width: 1; }
+.g-fan { transform-origin: 232px 52px; animation: sweep 4s ease-in-out infinite alternate; }
+@keyframes sweep { from { transform: rotate(-12deg); } to { transform: rotate(48deg); } }
+.g-guard { fill: #3c4a6b; stroke: #c7d0e6; stroke-width: 1.2; }
+.g-case { fill: none; stroke: #d9b979; stroke-width: 1.2; }
+.g-laser { stroke: #ff3a4a; stroke-width: 2.4; stroke-linecap: round; filter: drop-shadow(0 0 4px #ff2a3c); animation: blink 2.2s steps(1) infinite; }
+@keyframes blink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: .08; } }
+.g-beacon rect { fill: rgba(217, 185, 121, .18); }
+.g-beacon circle { fill: none; stroke: #d9b979; stroke-width: 1.4; animation: pulse 1.6s ease-out infinite; transform-origin: 47px 84px; }
+@keyframes pulse { from { transform: scale(.6); opacity: 1; } to { transform: scale(1.5); opacity: 0; } }
+.g-me { fill: #f4f1ea; stroke: #8a0c18; stroke-width: 2; }
+.g-mark { fill: #d9b979; }
+.g-dial { fill: none; stroke: #c98b7b; stroke-width: 1.2; transform-origin: 130px 94px; animation: turn 6s ease-in-out infinite alternate; }
+@keyframes turn { from { transform: rotate(-70deg); } to { transform: rotate(40deg); } }
+.g-hub { fill: #0d0b0b; stroke: #d9b979; stroke-width: 1.2; }
+.g-bars rect { fill: rgba(239, 232, 220, .16); animation: bar 6s ease-in-out infinite alternate; }
+.g-bars .b0 { animation-delay: -6s; } .g-bars .b1 { animation-delay: -5.2s; } .g-bars .b2 { animation-delay: -4.4s; }
+.g-bars .b3 { animation-delay: -3.6s; } .g-bars .b4 { animation-delay: -2.8s; } .g-bars .b5 { animation-delay: -2s; } .g-bars .b6 { animation-delay: -1.2s; }
+@keyframes bar { 0%, 30% { fill: rgba(239, 232, 220, .16); } 31%, 100% { fill: #d9b979; } }
+.g-ped { fill: none; stroke: rgba(217, 185, 121, .6); stroke-width: 1.2; }
+.g-ring circle { fill: none; stroke-width: 2.4; }
+.g-ring circle:nth-child(1) { stroke: #c98b7b; } .g-ring circle:nth-child(2) { stroke: #d9b979; } .g-ring circle:nth-child(3) { stroke: #cfd2d4; }
+.g-band { fill: rgba(217, 185, 121, .22); stroke: #d9b979; stroke-width: 1; }
+.g-mid { stroke: #d9b979; stroke-width: 1; }
+.g-fill { fill: #f4f1ea; transform-origin: 40px 122px; animation: fill 3.2s ease-in infinite; }
+@keyframes fill { 0% { transform: scaleX(0); } 70% { transform: scaleX(.6); } 78%, 100% { transform: scaleX(.6); fill: #d9b979; } }
+.g-vcard rect { fill: #efe8dc; }
+.g-vcard .g-inner { fill: none; stroke: #b08d4f; stroke-width: 1; }
+.g-vcard text { font-family: var(--display); font-style: italic; font-size: 22px; fill: #8a0c18; text-anchor: middle; }
+.g-vcard { animation: drop 2.6s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes drop { 0% { transform: translateY(-40px) rotate(-8deg); opacity: 0; } 30% { transform: none; opacity: 1; } 100% { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .g-art *, .g-card.from-r, .g-card.from-l { animation: none !important; }
+}
+
+/* 타이틀: 난이도 설명 */
+.diff-note { margin: -6px 0 0; font-size: 12px; line-height: 1.6; color: var(--ink-2); min-height: 1.6em; }
+
+/* HUD: 시선 퍼센트 */
+.gaze .pct { font-family: var(--label); font-size: 11px; color: rgba(239, 232, 220, .8); min-width: 3ch; }
+.gaze.hot .pct { color: #ff6a74; }
+
+/* 모바일 버튼: 더 크게, 엄지가 닿는 자리에 */
+#pad .btns { grid-template-columns: 72px 72px; gap: 14px; right: 18px; bottom: calc(var(--sb) + 24px); }
+#pad .b { width: 72px; height: 72px; font-size: 12px; }
+#pad .b span { display: block; }
+@media (min-width: 900px) and (min-aspect-ratio: 11/10) {
+  .guide { width: 900px; }
+  .g-card { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); column-gap: 30px; align-items: start; }
+  .g-card > :not(.g-art) { grid-column: 2; }
+  .g-art { grid-column: 1; grid-row: 1 / span 6; }
+  .g-step { margin-top: 2px; }
+}

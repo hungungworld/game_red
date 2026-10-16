@@ -6,6 +6,7 @@ export const el = {
   hud: $('#hud'),
   gaze: $('#hud .gaze'),
   gazeBar: $('#hud .bar i'),
+  gazePct: $('#hud .pct'),
   tank: $('#hud .tank'),
   hand: $('#tank-hand'),
   radio: $('#radio'),
@@ -70,6 +71,7 @@ export function edge(kind = 'red') {
 // ---------- HUD ----------
 export function setGaze(p) {
   el.gazeBar.style.width = `${Math.min(100, p)}%`;
+  if (el.gazePct) el.gazePct.textContent = `${Math.round(Math.min(100, p))}%`;
   el.gaze.classList.toggle('hot', p >= 60);
 }
 

@@ -27,6 +27,7 @@
     <div class="gaze">
       <span class="label">시선</span>
       <div class="bar"><i></i></div>
+      <span class="pct" aria-live="off">0%</span>
     </div>
     <div class="hud-r">
     <svg class="tank" viewBox="0 0 40 56" aria-hidden="true">
@@ -72,8 +73,11 @@
         <button data-diff="pro" role="radio">프로</button>
         <button data-diff="legend" role="radio">전설</button>
       </div>
+      <p class="diff-note" id="diff-note" aria-live="polite"></p>
       <button class="primary" data-nav="start">방문 시작</button>
       <div class="links">
+        <button class="link" data-nav="guide">방문 방법</button>
+        <span class="dot"></span>
         <button class="link" data-nav="salon">나의 살롱</button>
         <span class="dot"></span>
         <button class="link" data-nav="settings">설정</button>
