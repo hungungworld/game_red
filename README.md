@@ -18,6 +18,13 @@ ES 모듈을 쓰므로 `file://`로 열면 동작하지 않습니다. 정적 호
 - `?play=1` — 타이틀을 건너뛰고 바로 브리핑으로 (QR·광고 랜딩용)
 - `?play=1&piece=clou` — 특정 피스 미션으로 바로 진입 (`panthere-brooch`, `love-bracelet`, `trinity-ring`, `panthere-ring`, `clou`)
 
+## 인물 (v0.5)
+
+- 레드와 관리인은 실제 인체 비율의 리깅 모델에 모션 캡처 애니메이션(대기·걷기·달리기, 레드는 살금 자세 가산 블렌딩)을 씁니다. 속도에 따라 자연스럽게 섞입니다.
+- 레드: 무광 검은 슈트의 얼굴 없는 실루엣(기획서 4장) + 머리 뼈를 따라가는 페도라, 목 뼈를 따라가는 붉은 스카프.
+- 관리인: 남색 제복의 인물, 오른손 뼈에 손전등.
+- 모델: three.js 예제 저장소의 Mixamo 캐릭터 `assets/models/Xbot.glb`, `assets/models/Soldier.glb` (Mixamo 이용 약관에 따른 로열티 프리 에셋). 정식 출시 전에는 브랜드 승인 캐릭터 에셋으로 교체하세요. 모델을 못 불러오면 예전 절차적 인물로 자동 대체됩니다.
+
 ## UI/UX (v0.4)
 
 - **목표 안내**: 화면 위 목표 줄 + 맵 위 금빛 빛기둥이 지금 가야 할 곳(퓨즈함 → 출구)을 가리킵니다.
@@ -128,6 +135,8 @@ js/levels.js          잠입 맵 데이터 (ASCII 타일 + 레이저·관리인�
 js/props.js           대리석 바닥·벽·기둥·진열장·퓨즈함·카메라·시야 부채꼴·레이저
 js/input.js           키보드 + 모바일 가상 조이스틱·버튼
 js/lines.js           게임 속 모든 대사·문구
+js/characters.js      리깅 인물 모델 로드·애니메이션 블렌딩·모자/스카프/손전등 부착
+assets/models/        인물 모델 (glb)
 js/stages/vault.js    Love · Trinity 금고 (3D 다이얼)
 js/stages/swap.js     벨벳 레플리카 바꿔치기 (3D 전시실 + 게이지)
 js/figures.js         방문 카드 텍스처용 2D 그림

@@ -1,7 +1,8 @@
 // 3단계 벨벳 레플리카 바꿔치기. 길게 눌러 무게를 채우고 금빛 띠 안에서 손을 뗀다.
 import { clamp, rand } from '../util.js';
 import { THREE, MAT, getEnv, marbleTex, additive, fadeTex, draw, fitDist } from '../gfx.js';
-import { Figure, buildPiece, buildCard } from '../models.js';
+import { buildPiece, buildCard } from '../models.js';
+import { makeGuard } from '../characters.js';
 import { audio } from '../audio.js';
 import { haptics } from '../haptics.js';
 import { radio, hint, edge } from '../ui.js';
@@ -218,7 +219,7 @@ export class Swap {
     const kick = new THREE.PointLight(0xffd9b0, 6, 6);
     kick.position.set(-1.2, 1.8, 2);
     scene.add(kick);
-    this.guard = new Figure({ material: MAT.guard(), hat: 'cap', scale: 1.05 });
+    this.guard = makeGuard();
     this.guard.group.position.set(-6, 0, -1.8);
     this.guard.group.visible = false;
     scene.add(this.guard.group);

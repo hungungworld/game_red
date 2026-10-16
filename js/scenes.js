@@ -1,6 +1,7 @@
 // 메뉴용 쇼케이스(아이보리 스튜디오의 레드 박스·피스), 정체 드러남 장면, 썸네일
 import { THREE, K, MAT, getEnv, getRenderer, draw, marbleTex, glowTex, additive, fitDist, isWide } from './gfx.js';
-import { Figure, buildPiece, buildRedBox, buildChandelier } from './models.js';
+import { buildPiece, buildRedBox, buildChandelier } from './models.js';
+import { makeRed, makeGuard } from './characters.js';
 import { clamp } from './util.js';
 
 const IVORY = 0xf3eee6;
@@ -192,11 +193,11 @@ export class Reveal {
       this.lights.push(l);
     }
     scene.add(new THREE.HemisphereLight(0xffeedd, 0x000000, 0.02));
-    this.guard = new Figure({ material: MAT.guard(), hat: 'cap', scale: 1.1 });
-    this.guard.group.position.set(0.6 + 8 * 0.42, 2.7, -1.2);
+    this.guard = makeGuard({ scale: 1.05 });
+    this.guard.group.position.set(0.6 + 7 * 0.42, 2.4, -1.2);
     this.guard.group.rotation.y = Math.PI;
     scene.add(this.guard.group);
-    this.red = new Figure({ scale: 1.25 });
+    this.red = makeRed({ scale: 1.1 });
     this.red.group.position.set(-1.2, 0, 0.8);
     this.red.group.rotation.y = 0.5;
     scene.add(this.red.group);
@@ -214,7 +215,7 @@ export class Reveal {
     this.cam.lookAt(0.7, 2.4, 0);
     const ga = clamp((t - 1.1) / 0.5, 0, 1);
     this.guard.group.visible = ga > 0;
-    this.guard.group.position.y = 2.7 - (1 - ga) * 0.3;
+    this.guard.group.position.y = 2.4 - (1 - ga) * 0.3;
     const lift = clamp((t - 1.5) / 0.4, 0, 1) * (1 - clamp((t - 2.2) / 0.3, 0, 1));
     this.red.setPose('stand', 0, { hatLift: lift * 7 });
     const away = clamp((t - 2.2) / 0.6, 0, 1);

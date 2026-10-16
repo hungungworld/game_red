@@ -9,9 +9,11 @@ import { dayIndex, fmtTime } from './util.js';
 import { initGfx, resizeGfx } from './gfx.js';
 import { input, pollInput, endFrame, isTouch } from './input.js';
 import { getShowcase, queueThumb, processThumbs } from './scenes.js';
+import { preloadCharacters } from './characters.js';
 
 const canvas = el.canvas;
 initGfx(canvas);
+preloadCharacters();
 let W = 0;
 let H = 0;
 let dpr = 1;

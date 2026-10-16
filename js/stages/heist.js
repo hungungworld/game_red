@@ -2,7 +2,7 @@
 // 관리인 시야·감시 카메라·레이저(점멸·틈·회전·차선)·퓨즈·수집품.
 import { clamp, pingpong, angDiff } from '../util.js';
 import { THREE, MAT, getEnv, draw, fitDist, glowTex } from '../gfx.js';
-import { Humanoid } from '../models.js';
+import { makeRed, makeGuard } from '../characters.js';
 import {
   checkerFloor, buildWalls, buildColumn, buildCase, buildFuse, buildExit, buildCamera, buildEmblem,
   buildLaser, placeLaser, buildEmitter, VisionFan, markSprite, buildDust,
@@ -586,7 +586,7 @@ export class Heist {
     }
     // 관리인
     for (const g of this.guards) {
-      g.fig = new Humanoid({ coat: 0x1b2233, hat: 'cap', coatLen: 0.3 });
+      g.fig = makeGuard();
       scene.add(g.fig.group);
       const torch = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.22, 12), MAT.steel());
       torch.rotation.x = Math.PI / 2;
@@ -606,7 +606,7 @@ export class Heist {
       scene.add(c.fan.mesh);
     }
     // 레드
-    this.fig = new Humanoid({ scarf: true });
+    this.fig = makeRed();
     scene.add(this.fig.group);
     this.ring = new THREE.Mesh(new THREE.RingGeometry(0.34, 0.37, 48), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.2, 1.0, 0.6), transparent: true, opacity: 0.5, depthWrite: false }));
     this.ring.rotation.x = -Math.PI / 2;
@@ -685,7 +685,7 @@ export class Heist {
     for (const g of this.guards) {
       g.fig.group.position.set(g.x, 0, g.z);
       g.fig.group.rotation.y = Math.PI / 2 - g.face;
-      g.fig.animate(dtReal, g.moving ? 'walk' : 'idle', g.moving ? g.speed / SPEED.walk * 1.4 : 0);
+      g.fig.animate(dtReal, g.moving ? 'walk' : 'idle', g.moving ? g.speed / 3.3 : 0);
       const hx = g.x + Math.cos(g.face) * 0.35;
       const hz = g.z + Math.sin(g.face) * 0.35;
       g.spot.position.set(hx, 1.1, hz);
@@ -724,6 +724,11 @@ export class Heist {
     const el = 58 * D2R;
     this.cam.position.set(this.cx, Math.sin(el) * d, this.cz + Math.cos(el) * d);
     this.cam.lookAt(this.cx, 0, this.cz);
+    if (this.closeup) { // 디버그·연출용 근접 카메라
+      const c = this.closeup;
+      this.cam.position.set(c.x ?? p.x + 1.8, c.y ?? 1.5, c.z ?? p.z + 2.4);
+      this.cam.lookAt(c.tx ?? p.x, c.ty ?? 0.95, c.tz ?? p.z);
+    }
     this.moon.position.set(this.cx - 6, 14, this.cz + 4);
     this.moon.target.position.set(this.cx, 0, this.cz);
     draw(this.scene, this.cam);

@@ -7,6 +7,7 @@ import { haptics } from './haptics.js';
 import { store } from './store.js';
 import { el, radio, clearRadio, hint, edge, setGaze, setWatch, overlay, closeOverlay, toast } from './ui.js';
 import { getShowcase, Reveal, drawBlank } from './scenes.js';
+import { preloadCharacters } from './characters.js';
 import { Heist } from './stages/heist.js';
 import { LEVELS } from './levels.js';
 import { Vault } from './stages/vault.js';
@@ -69,7 +70,12 @@ export class Mission {
       </div>`, { cls: 'paper', onAction: (a) => (a === 'go' ? this.begin() : this.exit()) });
   }
 
-  begin() {
+  async begin() {
+    if (this.starting) return;
+    this.starting = true;
+    const btn = el.overlay.querySelector('[data-a="go"]');
+    if (btn) btn.textContent = '불러오는 중…';
+    await preloadCharacters();
     closeOverlay();
     audio.unlock();
     el.hud.hidden = false;
