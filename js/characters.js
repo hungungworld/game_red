@@ -110,7 +110,7 @@ const RED = () => new THREE.MeshPhysicalMaterial({ color: 0x9a0c1a, roughness: 0
 function topHat() {
   const g = new THREE.Group();
   const white = WHITE();
-  const brimProf = [[0.08, 0.0], [0.15, 0.003], [0.178, 0.012], [0.186, 0.026], [0.17, 0.02], [0.08, 0.01]].map(([r, y]) => new THREE.Vector2(r, y));
+  const brimProf = [[0.08, 0.0], [0.16, 0.003], [0.195, 0.012], [0.203, 0.028], [0.186, 0.021], [0.08, 0.01]].map(([r, y]) => new THREE.Vector2(r, y));
   const brim = new THREE.Mesh(new THREE.LatheGeometry(brimProf, 56), white);
   brim.scale.z = 0.88;
   const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.094, 0.2, 56), white);
@@ -126,28 +126,42 @@ function topHat() {
 
 function monocle() {
   const g = new THREE.Group();
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.021, 0.0028, 12, 40), MAT.gold());
-  const glass = new THREE.Mesh(new THREE.CircleGeometry(0.02, 32), new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0, transparent: true, opacity: 0.25, envMapIntensity: 2 }));
-  // 가는 금 사슬: 눈에서 옷깃으로
-  const pts = [new THREE.Vector3(0.012, -0.018, 0), new THREE.Vector3(0.03, -0.07, -0.01), new THREE.Vector3(0.05, -0.13, -0.03)];
-  const chain = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 16, 0.0012, 4), MAT.gold());
-  g.add(ring, glass, chain);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.0042, 14, 48), MAT.gold());
+  const rim2 = new THREE.Mesh(new THREE.TorusGeometry(0.026, 0.0018, 8, 40), new THREE.MeshPhysicalMaterial({ color: 0xdfe6ee, metalness: 1, roughness: 0.2 }));
+  const glass = new THREE.Mesh(new THREE.CircleGeometry(0.028, 40), new THREE.MeshPhysicalMaterial({ color: 0xd8ecff, roughness: 0, transparent: true, opacity: 0.35, envMapIntensity: 2.5, clearcoat: 1 }));
+  glass.position.z = 0.001;
+  // 안경 아래쪽에서 곧게 늘어진 금 사슬과 작은 루비 장식
+  const pts = [new THREE.Vector3(-0.024, -0.018, 0), new THREE.Vector3(-0.034, -0.08, 0.004), new THREE.Vector3(-0.036, -0.15, 0.01)];
+  const chain = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 20, 0.0013, 5), MAT.gold());
+  const charm = new THREE.Mesh(new THREE.OctahedronGeometry(0.008), new THREE.MeshPhysicalMaterial({ color: 0xb0101e, roughness: 0.05, clearcoat: 1 }));
+  charm.position.copy(pts[2]).add(new THREE.Vector3(0, -0.01, 0));
+  charm.scale.y = 1.5;
+  g.add(ring, rim2, glass, chain, charm);
   return g;
 }
 
 // 모자 아래로 보이는 짙은 갈색 머리 (옆·뒤, 살짝 뻗친 앞머리)
 function hair() {
   const g = new THREE.Group();
-  const m = new THREE.MeshStandardMaterial({ color: 0x2a1c14, roughness: 0.85 });
-  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.105, 40, 24, 0, Math.PI * 2, 0, Math.PI * 0.62), m);
+  const m = new THREE.MeshStandardMaterial({ color: 0x1d1611, roughness: 0.8 });
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.106, 40, 24, 0, Math.PI * 2, 0, Math.PI * 0.6), m);
   cap.scale.set(1.0, 1.0, 1.08);
-  cap.rotation.x = -0.35;
+  cap.rotation.x = -0.3;
   g.add(cap);
-  const tuft = new THREE.ConeGeometry(0.022, 0.07, 8);
-  for (const [x, y, z, rz, rx] of [[-0.05, 0.03, 0.085, 0.6, 1.2], [0.0, 0.04, 0.095, 0.1, 1.3], [0.05, 0.03, 0.085, -0.6, 1.2]]) {
-    const t = new THREE.Mesh(tuft, m);
-    t.position.set(x, y, z);
-    t.rotation.set(rx, 0, rz);
+  // 뻗친 머리칼: 모자 테 아래로 빙 둘러 바깥·아래로
+  const spike = new THREE.ConeGeometry(0.02, 0.085, 6);
+  let seed = 5;
+  const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < 22; i++) {
+    const a = (i / 22) * Math.PI * 2;
+    const front = Math.cos(a) > 0.55; // 앞머리
+    const t = new THREE.Mesh(spike, m);
+    const rr = 0.1;
+    t.position.set(Math.sin(a) * rr, front ? -0.005 : -r() * 0.02, Math.cos(a) * rr * 1.05);
+    const out = new THREE.Vector3(Math.sin(a), front ? -1.1 : -0.55 - r() * 0.4, Math.cos(a) * (front ? 1.4 : 1)).normalize();
+    t.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), out);
+    t.rotateY((r() - 0.5) * 0.8);
+    t.scale.set(1, front ? 0.55 + r() * 0.25 : 0.9 + r() * 0.5, 0.55);
     g.add(t);
   }
   return g;
@@ -193,6 +207,22 @@ class Cape {
     this.group = new THREE.Group();
     this.group.add(outer, inner);
     for (const m of [outer, inner]) m.frustumCulled = false;
+    // 목 뒤로 높이 선 주름 깃
+    const cg = new THREE.CylinderGeometry(0.16, 0.115, 0.17, 64, 4, true, Math.PI * 0.42, Math.PI * 1.16);
+    const cp = cg.attributes.position;
+    for (let k = 0; k < cp.count; k++) {
+      const x = cp.getX(k);
+      const z = cp.getZ(k);
+      const y = cp.getY(k);
+      const a = Math.atan2(x, z);
+      const f = 1 + Math.sin(a * 14) * 0.05 * (0.5 + (y + 0.08) * 4);
+      cp.setXYZ(k, x * f, y, z * f);
+    }
+    cg.computeVertexNormals();
+    const collarOut = new THREE.Mesh(cg, Object.assign(WHITE(), { side: THREE.FrontSide }));
+    const collarIn = new THREE.Mesh(cg, Object.assign(RED(), { side: THREE.BackSide }));
+    for (const c of [collarOut, collarIn]) { c.position.set(0, 0.06, -0.01); c.castShadow = true; }
+    this.group.add(collarOut, collarIn);
     this.t = 0;
     this.sp = 0;
     this.update(0, 0);
@@ -378,14 +408,16 @@ export class Actor {
       const qh = gq.clone().multiply(head.getWorldQuaternion(_q));
       const lift = this.hatLift;
       this.hat.quaternion.copy(qh);
-      this.hat.position.copy(pHead.clone().lerp(pTop, this.kind === 'red' ? 0.62 : 0.8)).add(new THREE.Vector3(0, lift * 0.014, 0));
+      this.hat.position.copy(pHead.clone().lerp(pTop, 0.6)).add(new THREE.Vector3(0.012, lift * 0.014, 0.012).applyQuaternion(qh));
+      // 챙을 눈썹까지 눌러쓰고 살짝 비스듬히
+      this.hat.rotateX(0.2 - Math.min(1, lift / 7) * 0.35);
+      this.hat.rotateZ(-0.13);
       if (this.hair) {
         this.hair.quaternion.copy(qh);
         this.hair.position.copy(pHead).add(new THREE.Vector3(0, 0.1, -0.012).applyQuaternion(qh));
       }
-      if (lift) this.hat.rotateZ(-0.35 * Math.min(1, lift / 7));
       this.mono.quaternion.copy(qh);
-      this.mono.position.copy(pHead).add(new THREE.Vector3(-0.036, 0.075, 0.095).applyQuaternion(qh));
+      this.mono.position.copy(pHead).add(new THREE.Vector3(-0.036, 0.073, 0.098).applyQuaternion(qh));
     }
     if (neck && spine) {
       const pn = neck.getWorldPosition(new THREE.Vector3()).applyMatrix4(inv);
