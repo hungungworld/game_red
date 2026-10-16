@@ -4,6 +4,7 @@ import { audio } from './audio.js';
 import { haptics } from './haptics.js';
 import { el, closeOverlay, overlay, toast, clearRadio, hint } from './ui.js';
 import { Mission } from './mission.js';
+import { L as T } from './lines.js';
 import { dayIndex, fmtTime } from './util.js';
 import { initGfx, resizeGfx } from './gfx.js';
 import { input, pollInput, endFrame, isTouch } from './input.js';
@@ -76,9 +77,23 @@ input.on((type, e) => {
   audio.unlock();
   if (e.code === 'Escape' && mission?.state === 'play') {
     if (mission.paused) resume(); else pause();
+    return;
   }
+  // 오버레이가 떠 있으면 Enter·Space = 기본 버튼, R = 다시
+  const ov = el.overlay;
+  if (!ov.hidden) {
+    if (e.code === 'KeyR') ov.querySelector('[data-a="retry"], [data-a="restart"]')?.click();
+    else if (e.code === 'Enter' || e.code === 'Space') {
+      const btn = ov.querySelector('.primary');
+      if (btn) btn.click(); else ov.click();
+      e.preventDefault();
+    }
+    return;
+  }
+  if (!mission && !$('#screen-title').hidden && e.code === 'Enter') startMission(dailyPiece());
 });
 document.body.classList.toggle('touch', isTouch);
+document.getElementById('pausebtn').addEventListener('click', () => (mission?.paused ? resume() : pause()));
 document.addEventListener('gesturestart', (e) => e.preventDefault());
 
 // ---------- 루프 ----------
@@ -122,7 +137,7 @@ function renderTitle() {
   const tag = document.querySelector('.tagline');
   tag.innerHTML = sealed
     ? '시즌 서클에 초대되었습니다 — 초대장을 받은 사람만 알 수 있습니다.'
-    : '레이저를 피하고, 금고를 열고, 방문 카드 한 장만 남긴다.';
+    : T.title.tagline;
 }
 
 function pieceState(rec) {
@@ -215,9 +230,28 @@ function pause() {
   mission.stage?.up?.({ x: 0, y: 0 });
   activePointer = null;
   audio.suspend();
-  overlay(`<div class="pause fade-in"><h2>잠시 숨을 고릅니다</h2><div class="stack"><button class="primary" data-a="resume">계속하기</button><button class="link" data-a="quit">메종을 떠나기</button></div></div>`, {
+  const snd = store.data.settings.sound;
+  overlay(`<div class="pause"><p class="eyebrow">Pause</p><h2>${T.pause.title}</h2><div class="stack">
+    <button class="primary" data-a="resume">${T.pause.resume}<span class="key">Esc</span></button>
+    <button class="ghost light" data-a="restart">${T.pause.restart}<span class="key">R</span></button>
+    <button class="ghost light" data-a="sound">사운드 ${snd ? '끄기' : '켜기'}</button>
+    <button class="link" data-a="quit">${T.pause.leave}</button></div></div>`, {
     cls: 'dim',
-    onAction: (a) => (a === 'resume' ? resume() : mission.exit()),
+    onAction: (a) => {
+      if (a === 'resume') resume();
+      else if (a === 'restart') {
+        resume();
+        mission.stage?.dispose?.();
+        mission.retry();
+      } else if (a === 'sound') {
+        store.data.settings.sound = !store.data.settings.sound;
+        store.save();
+        applySettings();
+        closeOverlay();
+        mission.paused = false;
+        pause();
+      } else mission.exit();
+    },
   });
 }
 function resume() {

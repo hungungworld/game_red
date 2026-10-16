@@ -12,6 +12,7 @@ import { input, isTouch, showPad, setPadAction } from '../input.js';
 import { audio } from '../audio.js';
 import { haptics } from '../haptics.js';
 import { radio, hint, edge } from '../ui.js';
+import { L as T, pick } from '../lines.js';
 
 const R = 0.27;
 const SPEED = { walk: 3.3, sneak: 1.65, dash: 7.6 };
@@ -70,20 +71,45 @@ export class Heist {
   }
 
   enter() {
-    radio(`${this.L.name}. ${this.L.goal}.`, 3600);
-    if (this.m.idx === 0) radio('관리인 시야에 오래 머물면 시선이 모인다. 진열장 뒤에서 살금 걸으면 가려진다.', 4200);
+    const key = this.m.flow[this.m.idx].key;
+    radio(pick(T.heist[key] || T.heist.gallery), 2600);
     hint(isTouch
-      ? '왼쪽 엄지 — 이동 · 살금 — 조용히 · 대시 — 빠르게(소음) · 조작 — 퓨즈'
-      : 'WASD · 방향키 이동 &nbsp;·&nbsp; Shift 살금 &nbsp;·&nbsp; Space 대시 &nbsp;·&nbsp; E 조작', this.m.store.tutorialDone ? 7000 : 0);
+      ? '<span class="kc">왼쪽 엄지</span> 이동 <span class="kc">살금</span> 조용히 <span class="kc">대시</span> 빠르게'
+      : '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 이동 <kbd>Shift</kbd> 살금 <kbd>Space</kbd> 대시 <kbd>E</kbd> 조작', this.m.store.tutorialDone ? 5000 : 9000);
     showPad(true);
+    this.cued = new Set();
+    this.lineCd = 0;
     this.setObjective();
+  }
+
+  say(text, ms = 2400, force = false) {
+    if (!force && this.lineCd > 0) return;
+    this.lineCd = 3;
+    radio(text, ms);
+  }
+
+  // 처음 마주치는 장치마다 한 번씩 짧게 알려 준다
+  cues() {
+    const p = this.p;
+    for (const l of this.lasers) {
+      if (this.cued.has(l.kind) || !l.segs.length) continue;
+      if (l.segs.some((sg) => segDist(p.x, p.z, sg) < 3.2)) {
+        this.cued.add(l.kind);
+        this.say(T.heist.laser[l.kind], 2800, true);
+      }
+    }
+    if (!this.cued.has('guard') && this.guards.some((g) => Math.hypot(g.x - p.x, g.z - p.z) < 7.5)) {
+      this.cued.add('guard');
+      this.say(this.guards.length > 1 ? T.heist.crossGuards : T.heist.guardRoom(isTouch), 3600, true);
+      if (this.fuses.some((f) => !f.done)) setTimeout(() => this.m.state === 'play' && radio(T.heist.fuseHint, 2800), 3800);
+    }
   }
 
   setObjective() {
     const el = document.getElementById('objective');
     if (!el) return;
     const fuseLeft = this.fuses.filter((f) => !f.done).length;
-    el.innerHTML = `<span>${this.L.name}</span>${fuseLeft ? '퓨즈를 찾아 레이저 문을 끄세요' : '북쪽 문으로'}<em>${'◆'.repeat(this.emblemsGot)}${'◇'.repeat(this.emblems.length - this.emblemsGot)}</em>`;
+    el.innerHTML = `<b class="obj-dot"></b><span class="obj-t">${fuseLeft ? '퓨즈함을 내려 레이저 문 끄기' : '금빛 표시가 있는 문으로'}</span><em title="팬더 발자국">${'◆'.repeat(this.emblemsGot)}${'◇'.repeat(this.emblems.length - this.emblemsGot)}</em>`;
   }
 
   // 마우스·터치로 캔버스를 누르는 입력은 쓰지 않는다 (조이스틱·키보드)
@@ -145,12 +171,14 @@ export class Heist {
     if (this.done) return;
     this.t += dt;
     this.nearCd -= dt;
+    this.lineCd -= dt;
     this.movePlayer(dt);
     this.updateLasers(dt);
     this.updateFuses(dt);
     this.updateGuards(dt);
     this.updateCams(dt);
     this.collect();
+    this.cues();
     this.sinceSeen += dt;
     if (this.sinceSeen > 1.6) this.m.relax(dt * 6);
     const p = this.p;
@@ -159,6 +187,7 @@ export class Heist {
       hint('');
       showPad(false);
       audio.door();
+      radio(pick(T.heist.exit), 1400);
       this.m.stageClear({ hits: this.hits, alerts: this.alerts, emblems: this.emblemsGot });
     }
   }
@@ -211,7 +240,10 @@ export class Heist {
     for (const g of this.guards) {
       if (g.state === 'alert') continue;
       if (Math.hypot(g.x - p.x, g.z - p.z) < r) {
-        if (g.state !== 'search') audio.warn();
+        if (g.state !== 'search') {
+          audio.warn();
+          this.say(pick(T.heist.noise), 2000);
+        }
         g.state = 'search';
         g.target = [p.x, p.z];
         g.lookT = 2.2;
@@ -289,7 +321,7 @@ export class Heist {
     audio.hit();
     haptics.hit();
     this.m.addGaze(this.mod.hit, 'laser', false, true);
-    if (this.m.state === 'play') radio(this.hits === 1 ? '닿았다. 패턴을 보고 다시.' : '조심해. 시선이 모인다.', 2200);
+    if (this.m.state === 'play') this.say(this.m.gaze >= 55 ? T.heist.hitAgain : pick(T.heist.hit), 2200, true);
   }
 
   // ---------- 퓨즈 ----------
@@ -313,7 +345,7 @@ export class Heist {
         audio.clunk();
         haptics.clunk();
         edge('gold');
-        radio('레이저 문이 꺼졌다. 좋아.', 2200);
+        this.say(pick(T.heist.fuseDone), 2200, true);
         this.setObjective();
       }
       if (pr) {
@@ -339,6 +371,7 @@ export class Heist {
       audio.chime();
       haptics.tick();
       edge('gold');
+      this.say(pick(T.heist.emblem), 1600);
       this.setObjective();
     }
   }
@@ -384,14 +417,18 @@ export class Heist {
           this.alerts++;
           this.m.alerted = true;
           audio.warn();
-          radio('들켰다! 시야에서 벗어나.', 1800);
+          this.say(pick(T.heist.spotted), 1800, true);
         }
         if (g.state === 'alert') g.target = [p.x, p.z];
       } else {
         g.seenT = Math.max(0, g.seenT - dt);
         if (g.state === 'alert') {
           g.lostT += dt;
-          if (g.lostT > 1.0) { g.state = 'search'; g.lookT = 2.5; }
+          if (g.lostT > 1.0) {
+            g.state = 'search';
+            g.lookT = 2.5;
+            this.say(pick(T.heist.lost), 1800);
+          }
         }
       }
       // 잡힘
@@ -458,8 +495,10 @@ export class Heist {
     for (const c of this.cams) {
       c.ang = c.dir + Math.sin(this.t * (c.speed / c.sweep) * 0.9) * c.sweep;
       const d = this.canSee(c.x, c.z, c.ang * D2R, c.fov, c.range);
+      const was = c.seen;
       c.seen = !!d;
       if (d) {
+        if (!was) this.say(T.heist.camera, 2000);
         this.observe(dt, d, c.range, 0.8);
         // 가장 가까운 관리인을 부른다
         let best = null;
@@ -594,6 +633,18 @@ export class Heist {
       l.position.set(this.w / 2, 2.6, z);
       scene.add(l);
     }
+    // 목표 표시: 금빛 빛기둥 + 바닥 고리
+    const beacon = new THREE.Group();
+    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 6, 32, 1, true), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.6, 1.2, 0.55), transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, alphaMap: fadeBeam() }));
+    col.position.y = 3;
+    const ringB = new THREE.Mesh(new THREE.RingGeometry(0.45, 0.5, 48), new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 1.7, 0.8), transparent: true, opacity: 0.8, depthWrite: false }));
+    ringB.rotation.x = -Math.PI / 2;
+    ringB.position.y = 0.03;
+    const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.14), new THREE.MeshBasicMaterial({ color: new THREE.Color(2.4, 1.8, 0.8) }));
+    gem.position.y = 2.6;
+    beacon.add(col, ringB, gem);
+    scene.add(beacon);
+    this.beacon = { g: beacon, ring: ringB, gem };
     this.dust = buildDust(this.w, this.h);
     scene.add(this.dust);
   }
@@ -654,6 +705,15 @@ export class Heist {
       c.fan.color(c.seen ? 0xff2a3c : 0xbfd2ff, c.seen ? 0.5 : 0.26);
     }
     this.dust.userData.tick(t);
+    const goal = this.fuses.find((f) => !f.done);
+    const bx = goal ? goal.x : this.exit[0];
+    const bz = goal ? goal.z : this.exit[1] + 0.3;
+    this.beacon.g.position.set(bx, 0, bz);
+    const pulse = (t * 0.8) % 1;
+    this.beacon.ring.scale.setScalar(1 + pulse * 0.9);
+    this.beacon.ring.material.opacity = 0.8 * (1 - pulse);
+    this.beacon.gem.rotation.y = t * 1.6;
+    this.beacon.gem.position.y = 2.5 + Math.sin(t * 2) * 0.12;
     // 카메라: 위에서 비스듬히 따라간다
     const tx = clamp(p.x, 4.5, this.w - 4.5);
     const tz = p.z - 1.2;
@@ -686,6 +746,22 @@ export class Heist {
     const ob = document.getElementById('objective');
     if (ob) ob.innerHTML = '';
   }
+}
+
+let beamTex = null;
+function fadeBeam() {
+  if (beamTex) return beamTex;
+  const c = document.createElement('canvas');
+  c.width = 4;
+  c.height = 64;
+  const g = c.getContext('2d');
+  const lg = g.createLinearGradient(0, 0, 0, 64);
+  lg.addColorStop(0, '#000');
+  lg.addColorStop(1, '#fff');
+  g.fillStyle = lg;
+  g.fillRect(0, 0, 4, 64);
+  beamTex = new THREE.CanvasTexture(c);
+  return beamTex;
 }
 
 function segDist(px, pz, [ax, az, bx, bz]) {

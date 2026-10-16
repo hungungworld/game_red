@@ -1,6 +1,7 @@
 // 한 판(약 3분)의 미션 진행: 단계 전환, 시선 게이지, 정체 드러남, 회수 등급.
 import { clamp, fmtTime } from './util.js';
-import { GRADE, BRIEF, TOOLS } from './data.js';
+import { GRADE, TOOLS } from './data.js';
+import { L as T, pick } from './lines.js';
 import { audio } from './audio.js';
 import { haptics } from './haptics.js';
 import { store } from './store.js';
@@ -54,7 +55,7 @@ export class Mission {
   start() {
     setGaze(0);
     getShowcase().set({ mode: 'piece', piece: this.piece.id, offsetY: 0.27 });
-    const lines = BRIEF.map((l) => `<p class="op">${l}</p>`).join('');
+    const lines = T.brief(this.piece.name).map((l) => `<p class="op">${l}</p>`).join('');
     overlay(`
       <div class="window"></div>
       <div class="panel brief fade-in">
@@ -106,8 +107,10 @@ export class Mission {
         <p class="sub">${f.sub}</p>
         <h2>${f.zone}</h2>
         <div class="line"></div>
+        <p class="tip">${T.zone[f.key]?.tip || ''}</p>
+        <p class="tap">탭하거나 Enter로 바로 시작</p>
       </div>`, { cls: 'night', onTap: go });
-    const timer = setTimeout(go, 1500);
+    const timer = setTimeout(go, this.retrying || this.store.tutorialDone ? 1800 : 3200);
   }
 
   // ---------- 입력 ----------
@@ -149,7 +152,7 @@ export class Mission {
     this.pantherFx = 1;
     audio.slow();
     haptics.clunk();
-    radio('팬더의 걸음.', 1400);
+    radio(T.panther, 1600);
     const fx = document.getElementById('fx');
     fx.classList.remove('on');
     void fx.offsetWidth;
@@ -183,21 +186,21 @@ export class Mission {
     this.stage?.dispose?.();
     this.revealScene = new Reveal();
     for (let i = 0; i < 4; i++) setTimeout(() => this.state === 'reveal' && audio.bell(i), 250 + i * 300);
-    this.revealTimer = setTimeout(() => this.showRevealCard(), 2700);
+    this.revealTimer = setTimeout(() => this.showRevealCard(), 2000);
   }
 
   showRevealCard() {
     if (this.state !== 'reveal' || this.revealCard) return;
     clearTimeout(this.revealTimer);
     this.revealCard = true;
-    const why = this.revealReason === 'time' ? '시간이 다 되어 조명이 켜졌습니다.' : '시선이 모두 모였습니다.';
+    const why = this.revealReason === 'time' ? T.reveal.time : T.reveal.gaze;
     overlay(`
       <div class="reveal fade-in">
-        <h2>정체가 드러났습니다</h2>
-        <p>${why}<br>레드는 정중히 인사하고 어둠 속으로 물러났습니다.</p>
+        <h2>${T.reveal.title}</h2>
+        <p>${why}</p>
         <div class="stack">
-          <button class="primary" data-a="retry">다시 방문하기</button>
-          <button class="link" data-a="exit">메종을 떠나기</button>
+          <button class="primary" data-a="retry">${T.reveal.retry}<span class="key">R</span></button>
+          <button class="link" data-a="exit">${T.reveal.leave}</button>
         </div>
       </div>`, {
       cls: 'veil',
@@ -235,6 +238,8 @@ export class Mission {
   // ---------- 회수 등급 ----------
   finish() {
     this.state = 'done';
+    hint('');
+    clearRadio();
     this.stage?.dispose?.();
     audio.stopMusic(1.2);
     el.hud.hidden = true;
@@ -272,7 +277,16 @@ export class Mission {
     if (l && l.hits === 0 && this.revealed === 0) give('monocle');
     store.save();
 
-    this.result = { grade, t, seal, gifts, isNew };
+    this.result = {
+      grade, t, seal, gifts, isNew,
+      crit: [
+        ['레이저에 닿지 않기', hits === 0 && this.gazeFloor === 0],
+        ['관리인에게 들키지 않기', !this.alerted],
+        ['한 번도 정체가 드러나지 않기', this.revealed === 0],
+        ['완벽한 손놀림 2회', this.perfects >= 2],
+        ['5분 안에 마치기', t <= S_TIME],
+      ],
+    };
     if (seal) this.showRedBox();
     else this.showResult();
   }
@@ -305,12 +319,14 @@ export class Mission {
         <p class="eyebrow">회수 완료 · ${this.diff.label}</p>
         <p class="grade">${G.label}<em>${grade}</em></p>
         <p class="place">${this.piece.name} — ${seal ? '팬더 인장이 찍힌 진열' : G.place}</p>
+        <p class="quote">“${T.result[grade]}”</p>
         <dl>
           <div><dt>시간</dt><dd>${fmtTime(t)}</dd></div>
           <div><dt>최고 시선</dt><dd>${Math.round(this.peakGaze)}%</dd></div>
           <div><dt>완벽한 손놀림</dt><dd>${this.perfects}</dd></div>
           <div><dt>발자국</dt><dd>${this.emblems}<small>/${Object.values(LEVELS).reduce((n, l) => n + l.map.join('').split('P').length - 1, 0)}</small></dd></div>
         </dl>
+        <ul class="crit"><li class="h">전설 S 조건${grade === 'S' ? ' — 모두 달성' : ''}</li>${this.result.crit.map(([k, ok]) => `<li class="${ok ? 'ok' : ''}"><i></i>${k}</li>`).join('')}</ul>
         ${giftHtml}${note}
         <button class="primary" data-a="share">방문 카드 공유하기</button>
         <button class="ghost" data-a="again">다시 방문하기</button>

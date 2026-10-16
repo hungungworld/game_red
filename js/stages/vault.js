@@ -5,6 +5,7 @@ import { audio } from '../audio.js';
 import { haptics } from '../haptics.js';
 import { radio, hint, edge } from '../ui.js';
 import { input, isTouch } from '../input.js';
+import { L as T } from '../lines.js';
 
 const NEAR = 8;
 const OVERSHOOT = 38;
@@ -52,14 +53,17 @@ export class Vault {
 
   enter() {
     const name = this.type === 'love' ? 'Love 금고' : 'Trinity 금고';
-    radio(`${name}다. 정답 각도는 세 개.`, 2400);
-    radio(this.type === 'love'
-      ? '드라이버를 천천히 돌려. 째깍이 빨라지면 가까운 거다.'
-      : '링을 하나씩 돌려. 째깍이 빨라지면 가까운 거다.', 3400);
-    radio('맞았다 싶으면 손을 멈추고 기다려.', 2600);
-    hint(isTouch ? '원을 따라 천천히 돌리기 · 정답에서 0.5초 멈추기' : '마우스 드래그 · 휠 · A/D 회전 (Shift 정밀) · 정답에서 0.5초 멈추기', this.m.store.tutorialDone ? 7000 : 0);
+    const [l1, l2] = T.vault.intro(name);
+    radio(l1, 2200);
+    radio(l2, 3600);
+    hint(isTouch ? '<span class="kc">드래그</span> 다이얼 돌리기 · 신호가 꽉 차면 손 떼고 기다리기'
+      : '<kbd>A</kbd><kbd>D</kbd> 또는 <kbd>드래그</kbd> · <kbd>휠</kbd> 돌리기 <kbd>Shift</kbd> 정밀 · 신호가 꽉 차면 멈추기', this.m.store.tutorialDone ? 6000 : 10000);
+    const el = document.createElement('div');
+    el.id = 'vaultui';
+    el.innerHTML = '<p class="lb">신호</p><div class="bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="steady"><b></b><span>멈춰서 기다리기</span></div>';
+    document.getElementById('app').appendChild(el);
+    this.ui = { el, bars: [...el.querySelectorAll('.bars i')], steady: el.querySelector('.steady'), ring: el.querySelector('.steady b') };
   }
-
 
   // ---------- 입력 ----------
   down(e) {
@@ -122,20 +126,20 @@ export class Vault {
       if (this.turnedInWatch > 3 && !this.warnedTurn) {
         this.warnedTurn = true;
         this.m.addGaze(20, 'vault');
-        if (this.m.state === 'play') radio('다이얼 소리를 들었다. 조심해.', 2000);
+        if (this.m.state === 'play') radio(T.vault.stepsHeard, 2000);
       }
       if (this.stepT <= 0) {
         this.watch = null;
         this.stepT = 11 + Math.random() * 6;
         document.getElementById('app').classList.remove('hush');
-        radio('지나갔다. 계속해.', 1500);
+        radio(T.vault.stepsGone, 1500);
       }
     } else if (!this.watch && this.stepT <= 0) {
       this.watch = 'warn';
       this.stepT = 1.4;
       audio.warn();
       haptics.warn();
-      radio('발소리. 손을 떼고 멈춰.', 2400);
+      radio(T.vault.stepsWarn, 2400);
     }
   }
 
@@ -173,7 +177,7 @@ export class Vault {
     this.footsteps(dt);
     if (this.timeLeft < 10 && !this.warned10) {
       this.warned10 = true;
-      radio('10초 남았다.', 1800);
+      radio(T.vault.ten, 1800);
     }
 
     const dist = Math.abs(angDiff(this.angle, this.target));
@@ -196,7 +200,7 @@ export class Vault {
         this.nearAt = null;
         this.overshoots++;
         this.m.addGaze(15, 'vault');
-        if (this.m.state === 'play') radio('너무 지나쳤어. 다이얼 소리가 커.', 2200);
+        if (this.m.state === 'play') radio(T.vault.over, 2000);
       } else if (this.t - this.nearAt >= 1.4) this.nearAt = null;
     }
 
@@ -216,18 +220,18 @@ export class Vault {
     if (this.idx >= 3) {
       this.opening = 0;
       setTimeout(() => audio.door(), 250);
-      radio('열렸다. 좋아.', 1800);
+      radio(T.vault.open, 1800);
       return;
     }
     this.newTarget();
-    radio(this.idx === 1 ? '하나. 다음.' : '둘. 마지막이다.', 1600);
+    radio(T.vault.locks[this.idx - 1], 1600);
   }
 
   // ---------- 3D ----------
   build() {
     const scene = new THREE.Scene();
     this.scene = scene;
-    scene.userData.fx = { bloom: 0.55, threshold: 0.9, grain: 0.04, vignette: 0.5 };
+    scene.userData.fx = { bloom: 0.35, threshold: 0.95, grain: 0.04, vignette: 0.5 };
     scene.background = new THREE.Color(0x040404);
     scene.environment = getEnv();
     scene.environmentIntensity = 0.55;
@@ -392,12 +396,21 @@ export class Vault {
     const assist = this.m.store.settings.assist;
     const p2 = prox * prox;
     this.glow.scale.setScalar(rr + 0.05);
-    this.glow.material.opacity = assist ? 0.15 + p2 * 0.85 : 0;
+    this.glow.material.opacity = assist ? 0.08 + p2 * 0.45 : 0;
     this.halo.scale.setScalar(rr + 0.05);
-    this.halo.material.opacity = assist ? p2 * 0.35 : 0;
+    this.halo.material.opacity = assist ? p2 * 0.12 : 0;
     this.wave.scale.setScalar(rr * (1.04 + (1 - this.pulseFx) * 0.12));
     this.wave.material.opacity = this.pulseFx * 0.25 + this.lockFx * 0.6;
     this.dots.forEach((d, i) => { d.visible = i < this.idx; });
+    if (this.ui) {
+      const n = Math.round(prox * 7);
+      this.ui.bars.forEach((b, i) => b.classList.toggle('on', i < n));
+      const dist = this.opening >= 0 ? 999 : Math.abs(angDiff(this.angle, this.target));
+      const inTol = dist <= this.tol;
+      this.ui.steady.classList.toggle('on', inTol);
+      this.ui.ring.style.setProperty('--p', inTol ? Math.min(100, (this.stillT / 0.5) * 100) : 0);
+      this.ui.el.classList.toggle('hold', this.watch === 'hold' || this.watch === 'warn');
+    }
     // 문이 열린다
     this.door.rotation.y = open * 1.2;
     this.door.position.x = -open * 1.8;
@@ -409,7 +422,10 @@ export class Vault {
     draw(this.scene, this.cam);
   }
 
-  dispose() { document.getElementById('app').classList.remove('hush'); }
+  dispose() {
+    document.getElementById('app').classList.remove('hush');
+    this.ui?.el.remove();
+  }
 }
 
 function screw(r) {

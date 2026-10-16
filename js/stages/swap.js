@@ -6,6 +6,7 @@ import { audio } from '../audio.js';
 import { haptics } from '../haptics.js';
 import { radio, hint, edge } from '../ui.js';
 import { input, isTouch } from '../input.js';
+import { L as T, pick } from '../lines.js';
 
 const ROUNDS = 3;
 const GUARD_CYCLE = 5.2;
@@ -46,10 +47,10 @@ export class Swap {
   }
 
   enter() {
-    radio('비밀 전시실. 진열대 압력 센서는 3중이다.', 2600);
-    radio('레플리카를 길게 눌러. 금빛 띠에서 손을 떼.', 3200);
-    if (this.window) radio('관리인이 진열대 앞을 지나는 2초. 그때만 바꿀 수 있다.', 3400);
-    hint(isTouch ? '길게 누르기 — 무게 채우기 · 금빛 띠 안에서 떼기' : '마우스 · Space 길게 — 무게 채우기 · 금빛 띠 안에서 떼기', this.m.store.tutorialDone ? 7000 : 0);
+    radio(T.swap.intro[0], 2400);
+    radio(T.swap.intro[1], 3200);
+    if (this.window) radio(T.swap.window, 3400);
+    hint(isTouch ? '<span class="kc">길게 누르기</span> 무게 채우기 · 금빛 띠 안에서 떼기' : '<kbd>Space</kbd> 또는 <kbd>클릭</kbd> 길게 — 금빛 띠 안에서 떼기', this.m.store.tutorialDone ? 6000 : 10000);
   }
 
   guardOpen() {
@@ -84,21 +85,21 @@ export class Swap {
       audio.swish();
       if (this.perfect) {
         this.m.perfects++;
-        this.msg = '완벽한 손놀림';
+        this.msg = T.swap.perfect;
         audio.chime();
         haptics.perfect();
         edge('gold');
       } else {
-        this.msg = ['첫 번째 센서', '두 번째 센서', '세 번째 센서'][this.round];
+        this.msg = T.swap.sensors[this.round];
         haptics.clunk();
       }
     } else {
       this.ok = false;
       this.perfect = false;
       this.fails++;
-      this.msg = !okWin && inBand ? '관리인의 시선' : v > this.bc ? '너무 무겁다' : '너무 가볍다';
+      this.msg = !okWin && inBand ? T.swap.seen : v > this.bc ? T.swap.heavy : T.swap.light;
       this.m.addGaze(!okWin && inBand ? 30 : 50, 'swap');
-      if (this.m.state === 'play') radio(!okWin && inBand ? '관리인이 보고 있었다. 지나갈 때를 노려.' : '센서가 반응했다. 다시.', 2200);
+      if (this.m.state === 'play') radio(!okWin && inBand ? T.swap.retrySeen : pick(T.swap.retry), 2200);
     }
   }
 
@@ -287,9 +288,10 @@ export class Swap {
     ui.band.style.left = `${this.bc - this.bw / 2}%`;
     ui.band.style.width = `${this.bw}%`;
     ui.fill.style.width = `${this.v}%`;
+    ui.band.classList.toggle('hit', this.state === 'fill' && Math.abs(this.v - this.bc) <= this.bw / 2 && open);
     ui.fill.classList.toggle('bad', this.state === 'result' && !this.ok);
     ui.rd.textContent = `${Math.min(this.round + 1, ROUNDS)} / ${ROUNDS}`;
-    ui.msg.textContent = this.state === 'result' ? this.msg : this.state === 'card' && this.rt > 1.3 ? '레드가 다녀갔습니다' : '';
+    ui.msg.textContent = this.state === 'result' ? this.msg : this.state === 'card' && this.rt > 1.3 ? T.swap.done : '';
     ui.msg.classList.toggle('perfect', this.state === 'result' && this.perfect);
     ui.ring.style.setProperty('--p', this.state === 'fill' ? this.v : 0);
   }

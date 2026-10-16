@@ -263,9 +263,9 @@ export function buildEmblem() {
 const unitBox = new THREE.BoxGeometry(1, 1, 1);
 export function buildLaser() {
   const g = new THREE.Group();
-  const core = new THREE.Mesh(unitBox, new THREE.MeshBasicMaterial({ color: new THREE.Color(6, 1.4, 1.5), transparent: true }));
+  const core = new THREE.Mesh(unitBox, new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 0.9, 1.0), transparent: true }));
   core.scale.set(1, 0.018, 0.018);
-  const glow = new THREE.Mesh(unitBox, additive(new THREE.Color(2.4, 0.08, 0.2), 0.35));
+  const glow = new THREE.Mesh(unitBox, additive(new THREE.Color(1.6, 0.05, 0.14), 0.25));
   glow.scale.set(1, 0.07, 0.07);
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.35), additive(new THREE.Color(1.2, 0.04, 0.1), 0.12, glowTex()));
   floor.rotation.x = -Math.PI / 2;
@@ -273,7 +273,7 @@ export function buildLaser() {
   g.add(core, glow, floor);
   g.userData.set = (a) => {
     core.material.opacity = a > 0.08 ? Math.min(1, a) : 0;
-    glow.material.opacity = 0.35 * a;
+    glow.material.opacity = 0.25 * a;
     floor.material.opacity = 0.12 * a;
   };
   return g;
