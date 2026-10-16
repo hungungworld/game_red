@@ -4,9 +4,10 @@
 import { THREE, MAT } from './gfx.js';
 import { GLTFLoader } from '../vendor/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from '../vendor/jsm/utils/SkeletonUtils.js';
+import { MeshoptDecoder } from '../vendor/jsm/libs/meshopt_decoder.module.js';
 import { Humanoid } from './models.js';
 
-const FILES = { red: 'Xbot.glb', guard: 'Soldier.glb' };
+const FILES = { red: 'Gentleman.glb', anim: 'Xbot.glb', guard: 'Soldier.glb' };
 const HEIGHT = { red: 1.8, guard: 1.82 };
 const src = {};
 let ready = null;
@@ -19,46 +20,214 @@ function url(name) {
 export function preloadCharacters() {
   if (ready) return ready;
   const loader = new GLTFLoader();
-  ready = Promise.all(Object.entries(FILES).map(([k, f]) => new Promise((res) => {
+  loader.setMeshoptDecoder(MeshoptDecoder);
+  const all = Promise.all(Object.entries(FILES).map(([k, f]) => new Promise((res) => {
     loader.load(url(f), (g) => { src[k] = g; res(); }, undefined, (e) => { console.warn('character load failed', f, e); res(); });
   })));
+  // 느린 환경에서도 멈추지 않게: 8초가 지나면 예전 인물로 시작
+  ready = Promise.race([all, new Promise((res) => setTimeout(res, 8000))]);
   return ready;
 }
 
 export const charactersLoaded = () => !!(src.red && src.guard);
 
-// ---------- 소품 ----------
-function fedora() {
+// 동작 옮기기(리타기팅): 두 골격 모두 T자 기본 자세라는 점을 이용해,
+// 원본 뼈가 기본 자세에서 회전한 만큼(월드 기준)을 대상 뼈의 기본 자세에 그대로 적용해 굽는다.
+let redClips = null;
+const strip = (n) => n.replace(/^mixamorig:?/, '');
+
+function bakeRetarget(srcRoot, tgtRoot, clip, fps = 30) {
+  srcRoot.updateMatrixWorld(true);
+  tgtRoot.updateMatrixWorld(true);
+  const sb = {};
+  srcRoot.traverse((o) => { if (o.isBone) sb[strip(o.name)] = o; });
+  const tbones = [];
+  tgtRoot.traverse((o) => { if (o.isBone) tbones.push(o); });
+  const srcBind = {};
+  const tgtBind = {};
+  for (const n in sb) srcBind[n] = sb[n].getWorldQuaternion(new THREE.Quaternion());
+  for (const b of tbones) tgtBind[b.name] = b.getWorldQuaternion(new THREE.Quaternion());
+  const sHip = sb.Hips;
+  const tHip = tbones.find((b) => b.name === 'Hips');
+  const sHip0 = sHip.getWorldPosition(new THREE.Vector3());
+  const tHip0 = tHip.getWorldPosition(new THREE.Vector3());
+  const ratio = tHip0.y / (sHip0.y || 1);
+  const hipParentInv = new THREE.Matrix4().copy(tHip.parent.matrixWorld).invert();
+  const staticParent = {};
+  for (const b of tbones) if (!b.parent.isBone) staticParent[b.name] = b.parent.getWorldQuaternion(new THREE.Quaternion());
+
+  const mixer = new THREE.AnimationMixer(srcRoot);
+  const act = mixer.clipAction(clip);
+  act.play();
+  const frames = Math.max(2, Math.round(clip.duration * fps) + 1);
+  const times = new Float32Array(frames);
+  const qv = tbones.map(() => new Float32Array(frames * 4));
+  const pv = new Float32Array(frames * 3);
+  const world = {};
+  const tmp = new THREE.Quaternion();
+  for (let f = 0; f < frames; f++) {
+    const t = (f / (frames - 1)) * clip.duration;
+    times[f] = t;
+    mixer.setTime(t);
+    srcRoot.updateMatrixWorld(true);
+    tbones.forEach((b, i) => {
+      const s = sb[b.name];
+      const parentW = b.parent.isBone ? world[b.parent.name] : staticParent[b.name];
+      let w;
+      if (s) {
+        w = s.getWorldQuaternion(new THREE.Quaternion()).multiply(tmp.copy(srcBind[b.name]).invert()).multiply(tgtBind[b.name]);
+      } else {
+        w = parentW.clone().multiply(b.quaternion);
+      }
+      world[b.name] = w;
+      const local = parentW.clone().invert().multiply(w);
+      local.toArray(qv[i], f * 4);
+    });
+    const hp = sHip.getWorldPosition(new THREE.Vector3()).sub(sHip0).multiplyScalar(ratio).add(tHip0).applyMatrix4(hipParentInv);
+    hp.toArray(pv, f * 3);
+  }
+  act.stop();
+  mixer.uncacheRoot(srcRoot);
+  const tracks = tbones.map((b, i) => new THREE.QuaternionKeyframeTrack(`${b.name}.quaternion`, times, qv[i]));
+  tracks.push(new THREE.VectorKeyframeTrack(`${tHip.name}.position`, times, pv));
+  return new THREE.AnimationClip(clip.name, clip.duration, tracks);
+}
+
+function retargeted() {
+  if (redClips) return redClips;
+  redClips = src.anim.animations
+    .filter((c) => ['idle', 'walk', 'run', 'sneak_pose', 'agree'].includes(c.name))
+    .map((c) => bakeRetarget(src.anim.scene, src.red.scene, c));
+  // 원본 골격을 기본 자세로 되돌림
+  src.anim.scene.traverse((o) => { if (o.isSkinnedMesh) o.skeleton.pose(); });
+  return redClips;
+}
+
+// ---------- 소품: 흰 실크해트 · 망토 · 외알 안경 · 붉은 넥타이 ----------
+const WHITE = () => new THREE.MeshPhysicalMaterial({ color: 0xf2f0ea, roughness: 0.55, sheen: 0.7, sheenColor: 0xffffff, clearcoat: 0.15 });
+const RED = () => new THREE.MeshPhysicalMaterial({ color: 0x9a0c1a, roughness: 0.5, sheen: 1, sheenColor: 0xff5566 });
+
+function topHat() {
   const g = new THREE.Group();
-  const felt = new THREE.MeshPhysicalMaterial({ color: 0x0b0b0d, roughness: 0.75, sheen: 0.8, sheenColor: 0x3a3a44 });
-  const brimProf = [[0.07, 0.0], [0.17, 0.004], [0.2, 0.014], [0.205, 0.02], [0.17, 0.012], [0.07, 0.008]].map(([r, y]) => new THREE.Vector2(r, y));
-  const brim = new THREE.Mesh(new THREE.LatheGeometry(brimProf, 48), felt);
-  const prof = [[0, 0.14], [0.05, 0.135], [0.085, 0.122], [0.105, 0.09], [0.112, 0.02], [0.112, 0.0]].map(([r, y]) => new THREE.Vector2(r, y));
-  const crown = new THREE.Mesh(new THREE.LatheGeometry(prof, 48), felt);
-  crown.scale.set(1, 1, 0.86);
-  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.114, 0.114, 0.026, 48, 1, true), new THREE.MeshPhysicalMaterial({ color: 0x7c0a14, roughness: 0.4, sheen: 1, sheenColor: 0xff6070, side: THREE.DoubleSide }));
-  band.scale.z = 0.86;
-  band.position.y = 0.022;
-  // 가운데가 살짝 패인 정수리
-  const dent = new THREE.Mesh(new THREE.SphereGeometry(0.06, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), felt);
-  dent.scale.set(1, 0.15, 1.6);
-  dent.position.y = 0.128;
-  g.add(brim, crown, band, dent);
+  const white = WHITE();
+  const brimProf = [[0.08, 0.0], [0.15, 0.003], [0.178, 0.012], [0.186, 0.026], [0.17, 0.02], [0.08, 0.01]].map(([r, y]) => new THREE.Vector2(r, y));
+  const brim = new THREE.Mesh(new THREE.LatheGeometry(brimProf, 56), white);
+  brim.scale.z = 0.88;
+  const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.094, 0.2, 56), white);
+  crown.position.y = 0.11;
+  crown.scale.z = 0.88;
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.0965, 0.0955, 0.034, 56, 1, true), RED());
+  band.position.y = 0.03;
+  band.scale.z = 0.88;
+  g.add(brim, crown, band);
   g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   return g;
 }
 
-function scarf() {
-  const m = new THREE.Mesh(new THREE.TorusGeometry(0.075, 0.03, 16, 40), new THREE.MeshPhysicalMaterial({ color: 0x8a0a16, roughness: 0.6, sheen: 1, sheenColor: 0xff5a6a }));
-  m.rotation.x = Math.PI / 2;
-  m.scale.set(1, 1.15, 1);
-  m.castShadow = true;
-  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.2, 0.015), m.material);
-  tail.position.set(0.04, -0.1, 0.08);
-  tail.rotation.set(0.2, 0, -0.15);
+function monocle() {
   const g = new THREE.Group();
-  g.add(m, tail);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.021, 0.0028, 12, 40), MAT.gold());
+  const glass = new THREE.Mesh(new THREE.CircleGeometry(0.02, 32), new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0, transparent: true, opacity: 0.25, envMapIntensity: 2 }));
+  // 가는 금 사슬: 눈에서 옷깃으로
+  const pts = [new THREE.Vector3(0.012, -0.018, 0), new THREE.Vector3(0.03, -0.07, -0.01), new THREE.Vector3(0.05, -0.13, -0.03)];
+  const chain = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 16, 0.0012, 4), MAT.gold());
+  g.add(ring, glass, chain);
   return g;
+}
+
+// 모자 아래로 보이는 짙은 갈색 머리 (옆·뒤, 살짝 뻗친 앞머리)
+function hair() {
+  const g = new THREE.Group();
+  const m = new THREE.MeshStandardMaterial({ color: 0x2a1c14, roughness: 0.85 });
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.105, 40, 24, 0, Math.PI * 2, 0, Math.PI * 0.62), m);
+  cap.scale.set(1.0, 1.0, 1.08);
+  cap.rotation.x = -0.35;
+  g.add(cap);
+  const tuft = new THREE.ConeGeometry(0.022, 0.07, 8);
+  for (const [x, y, z, rz, rx] of [[-0.05, 0.03, 0.085, 0.6, 1.2], [0.0, 0.04, 0.095, 0.1, 1.3], [0.05, 0.03, 0.085, -0.6, 1.2]]) {
+    const t = new THREE.Mesh(tuft, m);
+    t.position.set(x, y, z);
+    t.rotation.set(rx, 0, rz);
+    g.add(t);
+  }
+  return g;
+}
+
+function necktie() {
+  const g = new THREE.Group();
+  const red = RED();
+  const knot = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.026, 0.02), red);
+  const blade = new THREE.Mesh(new THREE.ConeGeometry(0.026, 0.16, 4), red);
+  blade.rotation.set(Math.PI, Math.PI / 4, 0);
+  blade.scale.set(1, 1, 0.25);
+  blade.position.y = -0.09;
+  const collar = new THREE.Mesh(new THREE.TorusGeometry(0.068, 0.014, 10, 32, Math.PI * 1.3), WHITE());
+  collar.rotation.set(Math.PI / 2, 0, Math.PI * 0.85 + Math.PI);
+  collar.position.set(0, 0.01, -0.07);
+  g.add(knot, blade, collar);
+  return g;
+}
+
+// 망토: 어깨에서 종아리까지, 겉은 흰색 안감은 붉은색. 움직일수록 뒤로 나부낀다.
+class Cape {
+  constructor() {
+    this.cols = 16;
+    this.rows = 20;
+    const n = (this.cols + 1) * (this.rows + 1);
+    const geo = new THREE.BufferGeometry();
+    this.pos = new Float32Array(n * 3);
+    geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
+    const idx = [];
+    for (let r = 0; r < this.rows; r++) {
+      for (let c = 0; c < this.cols; c++) {
+        const a = r * (this.cols + 1) + c;
+        const b = a + this.cols + 1;
+        idx.push(a, b, a + 1, b, b + 1, a + 1);
+      }
+    }
+    geo.setIndex(idx);
+    this.geo = geo;
+    const outer = new THREE.Mesh(geo, Object.assign(WHITE(), { side: THREE.BackSide }));
+    const inner = new THREE.Mesh(geo, Object.assign(RED(), { side: THREE.FrontSide }));
+    outer.castShadow = true;
+    this.group = new THREE.Group();
+    this.group.add(outer, inner);
+    for (const m of [outer, inner]) m.frustumCulled = false;
+    this.t = 0;
+    this.sp = 0;
+    this.update(0, 0);
+  }
+
+  update(dt, speed) {
+    this.t += dt;
+    this.sp += (speed - this.sp) * Math.min(1, dt * 4);
+    const s = Math.min(1.6, this.sp / 3);
+    const p = this.pos;
+    let i = 0;
+    for (let r = 0; r <= this.rows; r++) {
+      const v = r / this.rows;
+      for (let c = 0; c <= this.cols; c++) {
+        const u = c / this.cols;
+        const th = (u - 0.5) * Math.PI * 0.9;
+        const rad = 0.15 + v * 0.13;
+        let x = Math.sin(th) * rad * 1.25;
+        let z = -Math.cos(th) * rad * 0.62 - 0.05;
+        // 움직일수록 뒤로 들려 흘러가는 각도
+        const lift = Math.min(1.1, 0.08 + s * 0.6) * Math.pow(v, 1.2);
+        const len = v * 1.02;
+        let y = -len * Math.cos(lift);
+        z -= len * Math.sin(lift);
+        x *= 1 - s * 0.18 * v;
+        z += Math.sin(this.t * (5 + s * 4) - v * 4.5 + u * 3.2) * 0.03 * v * (0.35 + s);
+        x += Math.sin(this.t * 3.1 + v * 3) * 0.012 * v * (0.3 + s);
+        p[i++] = x;
+        p[i++] = y;
+        p[i++] = z;
+      }
+    }
+    this.geo.attributes.position.needsUpdate = true;
+    this.geo.computeVertexNormals();
+  }
 }
 
 function findBone(root, name) {
@@ -94,9 +263,14 @@ export class Actor {
       o.receiveShadow = true;
       o.frustumCulled = false;
       if (kind === 'red') {
-        // 관절과 몸을 같은 무광 원단으로: 마네킹이 아니라 검은 슈트를 입은 사람처럼
-        const joint = /joint/i.test(o.material.name);
-        o.material = new THREE.MeshPhysicalMaterial({ color: joint ? 0x0e0e11 : 0x0b0b0d, roughness: 0.82, sheen: 1, sheenColor: 0x5a5a68, sheenRoughness: 0.6 });
+        const n = o.material.name;
+        if (/Headwear|Beard/i.test(n)) { o.visible = false; return; }
+        if (/Outfit_(Top|Bottom)/i.test(n)) {
+          // 흰 정장
+          o.material = new THREE.MeshPhysicalMaterial({ color: 0xf1efe9, roughness: 0.6, sheen: 0.8, sheenColor: 0xffffff, sheenRoughness: 0.5, normalMap: o.material.normalMap || null });
+        } else if (/Footwear/i.test(n)) {
+          o.material = new THREE.MeshPhysicalMaterial({ color: 0xf4f2ee, roughness: 0.3, clearcoat: 0.8 });
+        } else o.material = o.material.clone();
       } else {
         const m = o.material.clone();
         if (/visor/i.test(m.name)) {
@@ -116,12 +290,13 @@ export class Actor {
       head: findBone(model, 'Head'),
       neck: findBone(model, 'Neck'),
       top: findBone(model, 'HeadTop_End'),
+      spine: findBone(model, 'Spine2'),
       hand: findBone(model, 'RightHand'),
     };
     // 애니메이션
     this.mixer = new THREE.AnimationMixer(model);
     const clips = {};
-    for (const c of gltf.animations) clips[c.name.toLowerCase()] = c;
+    for (const c of kind === 'red' ? retargeted() : gltf.animations) clips[c.name.toLowerCase()] = c;
     this.actions = {};
     for (const n of ['idle', 'walk', 'run']) {
       if (!clips[n]) continue;
@@ -145,9 +320,11 @@ export class Actor {
     this.sneakW = 0;
     // 레드의 모자·스카프
     if (kind === 'red') {
-      this.hat = fedora();
-      this.scarf = scarf();
-      this.group.add(this.hat, this.scarf);
+      this.hat = topHat();
+      this.mono = monocle();
+      this.hair = hair();
+      this.cape = new Cape();
+      this.group.add(this.hat, this.mono, this.hair, this.cape.group);
     }
     this.hatLift = 0;
     this.lastT = performance.now();
@@ -184,30 +361,39 @@ export class Actor {
       sn.setEffectiveWeight(this.sneakW);
     }
     this.mixer.update(dt);
+    if (this.cape) this.cape.update(dt, mode === 'dash' ? 7 : speed);
     this.attach();
   }
 
-  // 모자·스카프를 뼈에 맞춘다 (뼈 크기 보정 없이 루트 기준으로)
+  // 모자·외알 안경·넥타이·망토를 뼈에 맞춘다 (루트 기준 좌표)
   attach() {
     if (!this.hat) return;
     this.group.updateMatrixWorld(true);
     const inv = _m.copy(this.group.matrixWorld).invert();
-    const { head, top, neck } = this.bones;
+    const gq = this.group.getWorldQuaternion(new THREE.Quaternion()).invert();
+    const { head, top, neck, spine } = this.bones;
     if (head && top) {
       const pTop = top.getWorldPosition(new THREE.Vector3()).applyMatrix4(inv);
       const pHead = head.getWorldPosition(new THREE.Vector3()).applyMatrix4(inv);
-      head.getWorldQuaternion(_q);
-      const gq = this.group.getWorldQuaternion(new THREE.Quaternion()).invert();
-      this.hat.quaternion.copy(gq.multiply(_q));
+      const qh = gq.clone().multiply(head.getWorldQuaternion(_q));
       const lift = this.hatLift;
-      this.hat.position.copy(pHead.lerp(pTop, 0.78)).add(new THREE.Vector3(0, lift * 0.012, 0));
-      if (lift) this.hat.rotateZ(-0.3 * Math.min(1, lift / 7));
+      this.hat.quaternion.copy(qh);
+      this.hat.position.copy(pHead.clone().lerp(pTop, this.kind === 'red' ? 0.62 : 0.8)).add(new THREE.Vector3(0, lift * 0.014, 0));
+      if (this.hair) {
+        this.hair.quaternion.copy(qh);
+        this.hair.position.copy(pHead).add(new THREE.Vector3(0, 0.1, -0.012).applyQuaternion(qh));
+      }
+      if (lift) this.hat.rotateZ(-0.35 * Math.min(1, lift / 7));
+      this.mono.quaternion.copy(qh);
+      this.mono.position.copy(pHead).add(new THREE.Vector3(-0.036, 0.075, 0.095).applyQuaternion(qh));
     }
-    if (neck) {
+    if (neck && spine) {
       const pn = neck.getWorldPosition(new THREE.Vector3()).applyMatrix4(inv);
-      this.scarf.position.copy(pn).add(new THREE.Vector3(0, -0.015, 0.012));
-      this.scarf.rotation.set(0, 0, 0);
-      this.scarf.rotation.y = 0;
+      const qs = gq.clone().multiply(spine.getWorldQuaternion(_q));
+      const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(qs);
+      const yaw = Math.atan2(fwd.x, fwd.z);
+      this.cape.group.position.copy(pn).add(new THREE.Vector3(0, -0.02, 0));
+      this.cape.group.rotation.set(0, yaw, 0);
     }
   }
 
@@ -241,7 +427,7 @@ function clampN(v, a, b) { return v < a ? a : v > b ? b : v; }
 
 // 모델이 있으면 실제 인물, 없으면 절차적 인물
 export function makeRed(opts = {}) {
-  return src.red ? new Actor('red', opts) : new Humanoid({ scarf: true, ...opts });
+  return src.red ? new Actor('red', opts) : new Humanoid({ scarf: true, coat: 0xeeece6, ...opts });
 }
 export function makeGuard(opts = {}) {
   return src.guard ? new Actor('guard', opts) : new Humanoid({ coat: 0x1b2233, hat: 'cap', coatLen: 0.3, ...opts });

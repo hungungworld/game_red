@@ -1,7 +1,7 @@
 const KEY = 'codename-red-v1';
 
 const defaults = () => ({
-  settings: { sound: true, haptics: true, assist: true, easy: false },
+  settings: { sound: true, haptics: true, assist: true, easy: false, hq: true },
   diff: 'apprentice',
   pieces: {}, // id -> { best: 'S'|'A'|'B', seal: bool, bestTime: seconds }
   tools: {}, // id -> true

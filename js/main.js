@@ -6,7 +6,7 @@ import { el, closeOverlay, overlay, toast, clearRadio, hint } from './ui.js';
 import { Mission } from './mission.js';
 import { L as T } from './lines.js';
 import { dayIndex, fmtTime } from './util.js';
-import { initGfx, resizeGfx } from './gfx.js';
+import { initGfx, resizeGfx, setQuality } from './gfx.js';
 import { input, pollInput, endFrame, isTouch } from './input.js';
 import { getShowcase, queueThumb, processThumbs } from './scenes.js';
 import { preloadCharacters } from './characters.js';
@@ -18,6 +18,7 @@ let W = 0;
 let H = 0;
 let dpr = 1;
 let mission = null;
+let lowPower = false;
 let last = performance.now();
 let t = 0;
 
@@ -26,6 +27,8 @@ const $ = (s) => document.querySelector(s);
 
 function applySettings() {
   const s = store.data.settings;
+  setQuality(s.hq === false ? 'low' : 'high');
+  if (W) resize();
   audio.setEnabled(s.sound);
   haptics.enabled = s.haptics;
 }
@@ -36,7 +39,7 @@ function resize() {
   const r = el.app.getBoundingClientRect();
   W = r.width;
   H = r.height;
-  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  dpr = Math.min(window.devicePixelRatio || 1, store.data.settings.hq === false || lowPower ? 1 : 2);
   resizeGfx(W, H, dpr);
 }
 window.addEventListener('resize', resize);
@@ -99,9 +102,29 @@ document.getElementById('pausebtn').addEventListener('click', () => (mission?.pa
 document.addEventListener('gesturestart', (e) => e.preventDefault());
 
 // ---------- 루프 ----------
+// 느린 기기 자동 감지: 3초 동안 평균 25fps 아래면 해상도·후처리를 낮춘다
+let perfT = 0;
+let perfN = 0;
+function watchPerf(raw) {
+  if (lowPower || !mission || mission.state !== 'play') return;
+  perfT += raw;
+  perfN++;
+  if (perfT < 3) return;
+  if (perfT / perfN > 0.04) {
+    lowPower = true;
+    setQuality('low');
+    resize();
+    toast('부드러운 진행을 위해 그래픽을 낮췄습니다');
+  }
+  perfT = 0;
+  perfN = 0;
+}
+
 function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000);
+  const raw = (now - last) / 1000;
+  const dt = Math.min(0.05, raw);
   last = now;
+  watchPerf(Math.min(raw, 0.25));
   t += dt;
   processThumbs();
   pollInput();
