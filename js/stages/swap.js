@@ -1,6 +1,7 @@
 // 3단계 벨벳 레플리카 바꿔치기. 길게 눌러 무게를 채우고 금빛 띠 안에서 손을 뗀다.
 import { clamp, rand } from '../util.js';
-import { GOLD, drawPiece, drawCard, drawRed } from '../figures.js';
+import { THREE, MAT, getEnv, marbleTex, additive, fadeTex, draw, fitDist } from '../gfx.js';
+import { Figure, buildPiece, buildCard } from '../models.js';
 import { audio } from '../audio.js';
 import { haptics } from '../haptics.js';
 import { radio, hint, edge } from '../ui.js';
@@ -144,144 +145,151 @@ export class Swap {
     }
   }
 
-  render(g, W, H) {
-    g.fillStyle = '#000';
-    g.fillRect(0, 0, W, H);
-    const cx = W / 2;
-    const topY = H * 0.43;
-    const pw = Math.min(W * 0.36, 150);
+  // ---------- 3D ----------
+  build() {
+    const scene = new THREE.Scene();
+    this.scene = scene;
+    scene.background = new THREE.Color(0x030202);
+    scene.fog = new THREE.Fog(0x030202, 6, 14);
+    scene.environment = getEnv();
+    scene.environmentIntensity = 0.5;
+    this.cam = new THREE.PerspectiveCamera(34, 0.5, 0.1, 40);
+
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), new THREE.MeshPhysicalMaterial({ map: marbleTex('#0e0d0d', '#cfc5b6', [4, 4], 10), roughness: 0.2, clearcoat: 1 }));
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    scene.add(floor);
+    // 벨벳 커튼
+    const geo = new THREE.PlaneGeometry(14, 7, 160, 1);
+    const pos = geo.attributes.position;
+    for (let k = 0; k < pos.count; k++) pos.setZ(k, Math.sin(pos.getX(k) * 6) * 0.09 + Math.sin(pos.getX(k) * 13) * 0.03);
+    geo.computeVertexNormals();
+    const curtain = new THREE.Mesh(geo, MAT.velvetRed());
+    curtain.position.set(0, 3.5, -3);
+    scene.add(curtain);
+    // 진열대: 검은 벨벳 기둥 + 금빛 테
+    const ped = new THREE.Group();
+    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.46, 1.0, 64), MAT.velvet());
+    col.position.y = 0.5;
+    col.castShadow = col.receiveShadow = true;
+    const top = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.06, 64), MAT.velvet());
+    top.position.y = 1.03;
+    top.receiveShadow = true;
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.012, 12, 96), MAT.gold());
+    rim.rotation.x = Math.PI / 2;
+    rim.position.y = 1.06;
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.58, 0.06, 64), MAT.gold());
+    base.position.y = 0.03;
+    ped.add(col, top, rim, base);
+    this.sensors = [-1, 0, 1].map((k) => {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(0.025, 16, 12), new THREE.MeshStandardMaterial({ color: 0x3a3226, emissive: 0x000000, metalness: 0.6, roughness: 0.3 }));
+      m.position.set(k * 0.12, 0.85, 0.44);
+      ped.add(m);
+      return m;
+    });
+    scene.add(ped);
+    this.piece = buildPiece(this.m.piece.id);
+    this.piece.scale.setScalar(0.42);
+    this.piece.position.y = 1.32;
+    scene.add(this.piece);
+    this.card = buildCard();
+    this.card.visible = false;
+    scene.add(this.card);
 
     // 스포트라이트 하나
-    const sg = g.createLinearGradient(0, 0, 0, topY + 40);
-    sg.addColorStop(0, 'rgba(255,236,200,0.0)');
-    sg.addColorStop(1, 'rgba(255,236,200,0.10)');
-    g.fillStyle = sg;
-    g.beginPath();
-    g.moveTo(cx - 10, 0);
-    g.lineTo(cx + 10, 0);
-    g.lineTo(cx + pw * 0.75, topY + 6);
-    g.lineTo(cx - pw * 0.75, topY + 6);
-    g.closePath();
-    g.fill();
+    const spot = new THREE.SpotLight(0xfff0d8, 70, 10, 0.3, 0.55, 1.2);
+    spot.position.set(0.4, 5.2, 1.2);
+    spot.target.position.set(0, 1.1, 0);
+    spot.castShadow = true;
+    spot.shadow.mapSize.set(1024, 1024);
+    spot.shadow.bias = -0.0005;
+    scene.add(spot, spot.target);
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.75, 4.2, 48, 1, true), additive(0xfff0d8, 0.07, fadeTex()));
+    beam.position.set(0.2, 3.1, 0.6);
+    beam.rotation.z = 0.08;
+    scene.add(beam);
+    scene.add(new THREE.HemisphereLight(0x8a6a60, 0x050303, 0.25));
+    const kick = new THREE.PointLight(0xffd9b0, 6, 6);
+    kick.position.set(-1.2, 1.8, 2);
+    scene.add(kick);
+    this.guard = new Figure({ material: MAT.guard(), hat: 'cap', scale: 1.05 });
+    this.guard.group.position.set(-6, 0, -1.8);
+    this.guard.group.visible = false;
+    scene.add(this.guard.group);
+    this.buildUI();
+  }
 
-    // 순찰 중인 관리인 (전설)
-    if (this.window) {
-      const c = this.t % GUARD_CYCLE;
-      const open = c > GUARD_CYCLE - GUARD_OPEN;
-      const u = (c - (GUARD_CYCLE - GUARD_OPEN - 0.6)) / (GUARD_OPEN + 1.2);
-      if (u > 0 && u < 1) {
-        const gx = -40 + u * (W + 80);
-        drawRed(g, gx, topY + 70, 'walk', this.t * 6, { scale: 2.2, body: '#060606', rim: 'rgba(239,232,220,0.18)', alpha: 0.9, hat: 'cap' });
-      }
-      g.fillStyle = open ? GOLD : 'rgba(139,134,128,0.8)';
-      g.font = '12px "Noto Sans KR", sans-serif';
-      g.textAlign = 'center';
-      g.fillText(open ? '관리인이 시야를 가린다 — 지금' : '관리인을 기다려', cx, H * 0.6);
-    }
+  buildUI() {
+    const el = document.createElement('div');
+    el.id = 'swapui';
+    el.innerHTML = `
+      <p class="win"></p>
+      <div class="gauge"><span class="lb">무게</span><span class="rd"></span><div class="band"><i></i></div><div class="fill"></div></div>
+      <p class="msg"></p>
+      <div class="replica"><b></b><span>레플리카</span></div>`;
+    document.getElementById('app').appendChild(el);
+    this.ui = {
+      el,
+      win: el.querySelector('.win'),
+      band: el.querySelector('.band'),
+      fill: el.querySelector('.fill'),
+      rd: el.querySelector('.rd'),
+      msg: el.querySelector('.msg'),
+      rep: el.querySelector('.replica'),
+      ring: el.querySelector('.replica b'),
+    };
+  }
 
-    // 벨벳 진열대
-    g.fillStyle = '#0e0a0c';
-    g.fillRect(cx - pw / 2, topY, pw, H * 0.12);
-    const vg = g.createLinearGradient(cx - pw / 2, 0, cx + pw / 2, 0);
-    vg.addColorStop(0, 'rgba(0,0,0,0.6)');
-    vg.addColorStop(0.5, 'rgba(255,255,255,0.03)');
-    vg.addColorStop(1, 'rgba(0,0,0,0.6)');
-    g.fillStyle = vg;
-    g.fillRect(cx - pw / 2, topY, pw, H * 0.12);
-    g.fillStyle = '#1a1316';
-    g.beginPath(); g.ellipse(cx, topY, pw / 2, 9, 0, 0, Math.PI * 2); g.fill();
-    g.strokeStyle = 'rgba(201,169,97,0.5)';
-    g.lineWidth = 1;
-    g.stroke();
-
-    // 센서 표시
-    for (let i = 0; i < ROUNDS; i++) {
-      const x = cx + (i - 1) * 16;
-      const y = topY + H * 0.12 - 12;
-      g.beginPath(); g.arc(x, y, 3, 0, Math.PI * 2);
-      g.strokeStyle = 'rgba(201,169,97,0.6)';
-      g.stroke();
-      if (i < this.round || (this.state === 'result' && this.ok && i === this.round)) {
-        g.fillStyle = GOLD;
-        g.fill();
-      }
-    }
-
-    // 피스와 방문 카드
-    const ps = pw * 0.7;
+  render() {
+    if (!this.scene) this.build();
+    const t = this.t;
+    // 피스: 천천히 돌고, 마지막에 사라지며 방문 카드가 내려앉는다
+    this.piece.rotation.y = t * 0.6;
+    this.piece.position.y = 1.32 + Math.sin(t * 1.4) * 0.015;
     if (this.state === 'card') {
       const u = clamp(this.rt / 0.7, 0, 1);
-      drawPiece(g, this.m.piece.id, cx, topY - ps * 0.42 - u * 30, ps, { alpha: 1 - u });
+      this.piece.scale.setScalar(0.42 * (1 - u));
+      this.piece.position.y = 1.32 + u * 0.4;
       const cu = clamp((this.rt - 0.6) / 0.8, 0, 1);
-      const ease = 1 - Math.pow(1 - cu, 3);
-      if (cu > 0) drawCard(g, cx, topY - 8 - (1 - ease) * 60, pw * 0.42, -0.08 * ease + 0.3 * (1 - ease), ease);
-      if (this.rt > 1.4) {
-        g.fillStyle = `rgba(239,232,220,${clamp((this.rt - 1.4) / 0.5, 0, 1) * 0.8})`;
-        g.font = '15px "Noto Serif KR", serif';
-        g.textAlign = 'center';
-        g.fillText('레드가 다녀갔습니다', cx, H * 0.66);
-      }
-    } else {
-      drawPiece(g, this.m.piece.id, cx, topY - ps * 0.42, ps, { glow: true });
+      const e = 1 - Math.pow(1 - cu, 3);
+      this.card.visible = cu > 0;
+      this.card.position.set(0, 1.065 + (1 - e) * 0.8, 0.05);
+      this.card.rotation.set(0, -0.25 + (1 - e) * 1.2, (1 - e) * 0.6);
     }
+    this.sensors.forEach((m, i) => {
+      const on = i < this.round || (this.state === 'result' && this.ok && i === this.round);
+      m.material.emissive.setHex(on ? 0xffc46a : 0x000000);
+      m.material.emissiveIntensity = on ? 2 : 0;
+    });
+    // 관리인 (전설): 진열대 뒤를 지나며 2초 동안 시야를 가린다
+    if (this.window) {
+      const c = t % GUARD_CYCLE;
+      const u = (c - (GUARD_CYCLE - GUARD_OPEN - 0.7)) / (GUARD_OPEN + 1.4);
+      this.guard.group.visible = u > 0 && u < 1;
+      this.guard.group.position.x = -3.2 + u * 6.4;
+      this.guard.setPose('walk', t * 6.5);
+    }
+    const dist = fitDist(this.cam, 1.05, 1.55);
+    this.cam.position.set(Math.sin(t * 0.15) * 0.25, 1.35 + dist * 0.12, dist);
+    this.cam.lookAt(0, 0.62, 0);
+    draw(this.scene, this.cam);
 
-    if (this.state === 'card') return;
-
-    // 무게 게이지
-    const gx = W * 0.14;
-    const gw = W * 0.72;
-    const gy = H * 0.66;
-    const gh = 10;
+    // DOM 게이지
+    const ui = this.ui;
     const open = this.guardOpen();
-    g.fillStyle = 'rgba(239,232,220,0.05)';
-    g.fillRect(gx, gy, gw, gh);
-    const bx = gx + ((this.bc - this.bw / 2) / 100) * gw;
-    const bwpx = (this.bw / 100) * gw;
-    g.fillStyle = open ? 'rgba(201,169,97,0.32)' : 'rgba(201,169,97,0.1)';
-    g.fillRect(bx, gy - 4, bwpx, gh + 8);
-    g.strokeStyle = open ? GOLD : 'rgba(201,169,97,0.4)';
-    g.lineWidth = 1;
-    g.strokeRect(bx + 0.5, gy - 3.5, bwpx - 1, gh + 7);
-    const mid = gx + (this.bc / 100) * gw;
-    g.beginPath(); g.moveTo(mid, gy - 7); g.lineTo(mid, gy + gh + 7); g.stroke();
-    g.strokeStyle = 'rgba(239,232,220,0.25)';
-    g.strokeRect(gx + 0.5, gy + 0.5, gw - 1, gh - 1);
-    g.fillStyle = this.state === 'result' && !this.ok ? '#c8102e' : 'rgba(239,232,220,0.85)';
-    g.fillRect(gx, gy + 3, (this.v / 100) * gw, gh - 6);
-    g.fillStyle = 'rgba(139,134,128,0.9)';
-    g.font = '11px "Noto Sans KR", sans-serif';
-    g.textAlign = 'left';
-    g.fillText('무게', gx, gy - 12);
-    g.textAlign = 'right';
-    g.fillText(`${this.round + 1} / ${ROUNDS}`, gx + gw, gy - 12);
+    ui.el.className = `${this.state} ${open ? 'open' : 'closed'}`;
+    ui.win.textContent = this.window ? (open ? '관리인이 시야를 가린다 — 지금' : '관리인을 기다려') : '';
+    ui.band.style.left = `${this.bc - this.bw / 2}%`;
+    ui.band.style.width = `${this.bw}%`;
+    ui.fill.style.width = `${this.v}%`;
+    ui.fill.classList.toggle('bad', this.state === 'result' && !this.ok);
+    ui.rd.textContent = `${Math.min(this.round + 1, ROUNDS)} / ${ROUNDS}`;
+    ui.msg.textContent = this.state === 'result' ? this.msg : this.state === 'card' && this.rt > 1.3 ? '레드가 다녀갔습니다' : '';
+    ui.msg.classList.toggle('perfect', this.state === 'result' && this.perfect);
+    ui.ring.style.setProperty('--p', this.state === 'fill' ? this.v : 0);
+  }
 
-    if (this.state === 'result') {
-      g.fillStyle = this.ok ? (this.perfect ? GOLD : 'rgba(239,232,220,0.85)') : 'rgba(239,232,220,0.7)';
-      g.font = `${this.perfect ? 'italic ' : ''}17px "Noto Serif KR", serif`;
-      g.textAlign = 'center';
-      g.fillText(this.msg, cx, gy + 46);
-    }
-
-    // 레플리카 (벨벳 주머니)
-    const ry = H * 0.83;
-    const rr = Math.min(40, W * 0.1);
-    const pressing = this.state === 'fill';
-    g.fillStyle = pressing ? '#1c1418' : '#100c0e';
-    g.beginPath(); g.arc(cx, ry, rr * (pressing ? 0.94 : 1), 0, Math.PI * 2); g.fill();
-    g.strokeStyle = 'rgba(201,169,97,0.7)';
-    g.lineWidth = 1;
-    g.stroke();
-    if (pressing) {
-      g.strokeStyle = GOLD;
-      g.beginPath(); g.arc(cx, ry, rr + 6, -Math.PI / 2, -Math.PI / 2 + (this.v / 100) * Math.PI * 2); g.stroke();
-    }
-    g.beginPath();
-    g.moveTo(cx - rr * 0.4, ry - rr * 0.35);
-    g.quadraticCurveTo(cx, ry - rr * 0.1, cx + rr * 0.4, ry - rr * 0.35);
-    g.stroke();
-    g.fillStyle = 'rgba(139,134,128,0.9)';
-    g.font = '11px "Noto Sans KR", sans-serif';
-    g.textAlign = 'center';
-    g.fillText('레플리카', cx, ry + rr + 18);
+  dispose() {
+    this.ui?.el.remove();
   }
 }

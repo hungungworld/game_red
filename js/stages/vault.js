@@ -1,11 +1,10 @@
 // 2단계 컬렉션 금고 (Love · Trinity). 정답 각도 3개를 소리·진동·금빛 번짐으로 찾는다.
 import { clamp, lerp, rand, angDiff } from '../util.js';
-import { GOLD } from '../figures.js';
+import { THREE, MAT, getEnv, marbleTex, additive, barMatrix, instanced, draw, fitDist } from '../gfx.js';
 import { audio } from '../audio.js';
 import { haptics } from '../haptics.js';
 import { radio, hint, edge } from '../ui.js';
 
-const RING_COLORS = ['#c98b7b', '#c9a961', '#cfd2d4']; // 로즈 · 옐로 · 화이트 골드
 const NEAR = 8;
 const OVERSHOOT = 38;
 
@@ -57,21 +56,17 @@ export class Vault {
     hint('원을 따라 천천히 돌리기 · 정답에서 0.5초 멈추기', this.m.store.tutorialDone ? 6000 : 0);
   }
 
-  geom(W, H) {
-    const R = Math.min(W * 0.4, H * 0.27);
-    return { cx: W / 2, cy: H * 0.56, R };
-  }
 
   // ---------- 입력 ----------
   down(e) {
-    const { cx, cy } = this.geom(this.m.W, this.m.H);
+    const { cx, cy } = this.screenCenter();
     const r = Math.hypot(e.x - cx, e.y - cy);
     this.drag = r > 18 ? { a: Math.atan2(e.y - cy, e.x - cx) } : null;
   }
 
   move(e) {
     if (this.opening >= 0) return;
-    const { cx, cy } = this.geom(this.m.W, this.m.H);
+    const { cx, cy } = this.screenCenter();
     const r = Math.hypot(e.x - cx, e.y - cy);
     if (r < 18) return;
     const a = Math.atan2(e.y - cy, e.x - cx);
@@ -174,189 +169,200 @@ export class Vault {
     radio(this.idx === 1 ? '하나. 다음.' : '둘. 마지막이다.', 1600);
   }
 
-  // ---------- 그리기 ----------
-  render(g, W, H) {
-    const { cx, cy, R } = this.geom(W, H);
-    g.fillStyle = '#000';
-    g.fillRect(0, 0, W, H);
-    const bg = g.createRadialGradient(cx, cy, R * 0.3, cx, cy, Math.max(W, H) * 0.8);
-    bg.addColorStop(0, '#121113');
-    bg.addColorStop(1, '#000');
-    g.fillStyle = bg;
-    g.fillRect(0, 0, W, H);
+  // ---------- 3D ----------
+  build() {
+    const scene = new THREE.Scene();
+    this.scene = scene;
+    scene.background = new THREE.Color(0x040404);
+    scene.environment = getEnv();
+    scene.environmentIntensity = 0.55;
+    this.cam = new THREE.PerspectiveCamera(38, 0.5, 0.1, 50);
 
-    const open = this.opening >= 0 ? clamp(this.opening / 1.2, 0, 1) : 0;
-    const prox = this.done || this.opening >= 0 ? 0 : this.prox();
-
-    // 금고 문
-    g.save();
-    g.translate(cx, cy);
-    g.rotate(open * 1.6);
-    g.globalAlpha = 1 - open * 0.75;
-    g.fillStyle = '#0c0c0e';
-    g.beginPath(); g.arc(0, 0, R * 1.22, 0, Math.PI * 2); g.fill();
-    g.lineWidth = 1;
-    g.strokeStyle = 'rgba(201,169,97,0.55)';
-    g.stroke();
-    g.strokeStyle = 'rgba(201,169,97,0.22)';
-    g.beginPath(); g.arc(0, 0, R * 1.12, 0, Math.PI * 2); g.stroke();
-    for (let i = 0; i < 12; i++) {
-      const a = (i / 12) * Math.PI * 2;
-      g.beginPath(); g.arc(Math.cos(a) * R * 1.17, Math.sin(a) * R * 1.17, 2.4, 0, Math.PI * 2); g.stroke();
-    }
-    g.restore();
-
-    // 금빛 번짐 (소리를 들을 수 없을 때를 위한 시각 정보)
-    if (this.m.store.settings.assist && prox > 0) {
-      const rr = this.type === 'love' ? R : [R, R * 0.74, R * 0.48][this.idx] || R;
-      g.save();
-      g.strokeStyle = `rgba(201,169,97,${0.08 + prox * prox * 0.7})`;
-      g.shadowColor = 'rgba(201,169,97,0.9)';
-      g.shadowBlur = 6 + prox * prox * 26;
-      g.lineWidth = 1 + prox * prox * 3;
-      g.beginPath(); g.arc(cx, cy, rr + 3, 0, Math.PI * 2); g.stroke();
-      g.restore();
+    // 금고실 벽
+    const wall = new THREE.Mesh(new THREE.PlaneGeometry(20, 20), new THREE.MeshStandardMaterial({ map: marbleTex('#141313', '#bfb5a6', [3, 3], 10), roughness: 0.3 }));
+    wall.position.z = -0.6;
+    scene.add(wall);
+    // 거대한 원형 금고 문
+    this.door = new THREE.Group();
+    scene.add(this.door);
+    const slab = new THREE.Mesh(new THREE.CylinderGeometry(2.55, 2.6, 0.5, 96), MAT.steel());
+    slab.rotation.x = Math.PI / 2;
+    this.door.add(slab);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(2.6, 0.06, 16, 128), MAT.gold());
+    rim.position.z = 0.26;
+    this.door.add(rim);
+    const rim2 = new THREE.Mesh(new THREE.TorusGeometry(2.3, 0.02, 12, 128), MAT.goldSatin());
+    rim2.position.z = 0.26;
+    this.door.add(rim2);
+    const bolt = new THREE.CylinderGeometry(0.07, 0.07, 0.08, 24);
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      const b = new THREE.Mesh(bolt, MAT.gold());
+      b.rotation.x = Math.PI / 2;
+      b.position.set(Math.cos(a) * 2.45, Math.sin(a) * 2.45, 0.27);
+      this.door.add(b);
     }
 
-    if (this.type === 'love') this.drawLove(g, cx, cy, R, open);
-    else this.drawTrinity(g, cx, cy, R, open);
-
-    // 째깍 파동
-    if (this.pulseFx > 0 && this.opening < 0) {
-      g.strokeStyle = `rgba(239,232,220,${this.pulseFx * 0.1})`;
-      g.lineWidth = 1;
-      g.beginPath(); g.arc(cx, cy, R * (1.25 + (1 - this.pulseFx) * 0.15), 0, Math.PI * 2); g.stroke();
-    }
-    if (this.lockFx > 0) {
-      g.strokeStyle = `rgba(201,169,97,${this.lockFx * 0.8})`;
-      g.lineWidth = 1;
-      g.beginPath(); g.arc(cx, cy, R * (1.25 + (1 - this.lockFx) * 0.4), 0, Math.PI * 2); g.stroke();
-    }
-
-    // 고정 표시 (12시)
-    g.fillStyle = GOLD;
-    g.beginPath();
-    g.moveTo(cx, cy - R * 1.27);
-    g.lineTo(cx - 6, cy - R * 1.27 - 10);
-    g.lineTo(cx + 6, cy - R * 1.27 - 10);
-    g.closePath();
-    g.fill();
-
-    // 진행 점 3개
-    for (let i = 0; i < 3; i++) {
-      const x = cx + (i - 1) * 18;
-      const y = cy + R * 1.27 + 26;
-      g.beginPath(); g.arc(x, y, 3.5, 0, Math.PI * 2);
-      g.strokeStyle = 'rgba(201,169,97,0.7)';
-      g.lineWidth = 1;
-      g.stroke();
-      if (i < this.idx) { g.fillStyle = GOLD; g.fill(); }
-    }
-  }
-
-  drawLove(g, cx, cy, R, open) {
-    g.save();
-    g.translate(cx, cy);
-    g.globalAlpha = 1 - open * 0.75;
-    g.rotate((this.angles[0] * Math.PI) / 180 + open * 1.6);
-    // 링 밴드
-    g.fillStyle = '#16151a';
-    g.beginPath(); g.arc(0, 0, R, 0, Math.PI * 2); g.arc(0, 0, R * 0.68, 0, Math.PI * 2, true); g.fill();
-    g.strokeStyle = 'rgba(201,169,97,0.75)';
-    g.lineWidth = 1;
-    g.beginPath(); g.arc(0, 0, R, 0, Math.PI * 2); g.stroke();
-    g.beginPath(); g.arc(0, 0, R * 0.68, 0, Math.PI * 2); g.stroke();
-    // 눈금
-    for (let i = 0; i < 72; i++) {
-      const a = (i / 72) * Math.PI * 2;
-      const l = i % 6 === 0 ? 0.1 : 0.05;
-      g.strokeStyle = i % 6 === 0 ? 'rgba(201,169,97,0.7)' : 'rgba(201,169,97,0.3)';
-      g.beginPath();
-      g.moveTo(Math.cos(a) * R * 0.98, Math.sin(a) * R * 0.98);
-      g.lineTo(Math.cos(a) * R * (0.98 - l), Math.sin(a) * R * (0.98 - l));
-      g.stroke();
-    }
-    // 나사 모티브 8개
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
-      const x = Math.cos(a) * R * 0.78;
-      const y = Math.sin(a) * R * 0.78;
-      screw(g, x, y, R * 0.055, a + 0.6);
-    }
-    // 안쪽 원판과 중앙 나사
-    g.fillStyle = '#0b0b0c';
-    g.beginPath(); g.arc(0, 0, R * 0.62, 0, Math.PI * 2); g.fill();
-    g.strokeStyle = 'rgba(201,169,97,0.3)';
-    g.beginPath(); g.arc(0, 0, R * 0.5, 0, Math.PI * 2); g.stroke();
-    screw(g, 0, 0, R * 0.16, 0.4);
-    // 전용 드라이버
-    g.strokeStyle = '#2b2a2e';
-    g.lineCap = 'round';
-    g.lineWidth = R * 0.07;
-    g.beginPath(); g.moveTo(0, 0); g.lineTo(R * 0.52, 0); g.stroke();
-    g.strokeStyle = GOLD;
-    g.lineWidth = 1;
-    g.beginPath(); g.moveTo(R * 0.12, -R * 0.035); g.lineTo(R * 0.52, -R * 0.035); g.stroke();
-    g.fillStyle = '#16151a';
-    g.beginPath(); g.ellipse(R * 0.55, 0, R * 0.09, R * 0.055, 0, 0, Math.PI * 2); g.fill();
-    g.strokeStyle = 'rgba(201,169,97,0.8)';
-    g.stroke();
-    g.restore();
-  }
-
-  drawTrinity(g, cx, cy, R, open) {
-    const bands = [[R, R * 0.78], [R * 0.74, R * 0.52], [R * 0.48, R * 0.26]];
-    for (let i = 0; i < 3; i++) {
-      const [ro, ri] = bands[i];
-      const active = i === this.idx;
-      const locked = i < this.idx;
-      g.save();
-      g.translate(cx, cy);
-      g.globalAlpha = (active ? 1 : locked ? 0.85 : 0.4) * (1 - open * 0.75);
-      g.rotate((this.angles[i] * Math.PI) / 180 + open * (1.2 + i * 0.4));
-      g.fillStyle = '#141316';
-      g.beginPath(); g.arc(0, 0, ro, 0, Math.PI * 2); g.arc(0, 0, ri, 0, Math.PI * 2, true); g.fill();
-      g.strokeStyle = RING_COLORS[i];
-      g.lineWidth = active ? 1.5 : 1;
-      g.beginPath(); g.arc(0, 0, ro, 0, Math.PI * 2); g.stroke();
-      g.beginPath(); g.arc(0, 0, ri, 0, Math.PI * 2); g.stroke();
-      const n = 48 - i * 12;
-      g.lineWidth = 1;
+    // 다이얼
+    const R = 1.75;
+    this.R = R;
+    this.dials = [];
+    const ring = (ro, ri, depth, mat) => {
+      const shape = new THREE.Shape();
+      shape.absarc(0, 0, ro, 0, Math.PI * 2, false);
+      const hole = new THREE.Path();
+      hole.absarc(0, 0, ri, 0, Math.PI * 2, true);
+      shape.holes.push(hole);
+      const geo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelThickness: 0.02, bevelSize: 0.02, bevelSegments: 3, curveSegments: 96 });
+      return new THREE.Mesh(geo, mat);
+    };
+    const ticks = (ro, ri, n, mat, z) => {
+      const ms = [];
       for (let k = 0; k < n; k++) {
         const a = (k / n) * Math.PI * 2;
-        g.globalAlpha *= 1;
-        g.strokeStyle = k % 4 === 0 ? RING_COLORS[i] : 'rgba(239,232,220,0.14)';
-        g.beginPath();
-        g.moveTo(Math.cos(a) * (ro - 2), Math.sin(a) * (ro - 2));
-        g.lineTo(Math.cos(a) * (ro - (ro - ri) * (k % 4 === 0 ? 0.45 : 0.25)), Math.sin(a) * (ro - (ro - ri) * (k % 4 === 0 ? 0.45 : 0.25)));
-        g.stroke();
+        const big = k % 6 === 0;
+        const r1 = ro - 0.03;
+        const r0 = ro - (ro - ri) * (big ? 0.42 : 0.22);
+        ms.push(barMatrix(new THREE.Vector3(Math.cos(a) * r0, Math.sin(a) * r0, z), new THREE.Vector3(Math.cos(a) * r1, Math.sin(a) * r1, z), big ? 0.014 : 0.007, 0.01));
       }
-      g.restore();
-      if (locked) {
-        g.fillStyle = GOLD;
-        g.beginPath(); g.arc(cx, cy - (ro + ri) / 2, 2.6, 0, Math.PI * 2); g.fill();
+      return instanced(new THREE.BoxGeometry(1, 1, 1), mat, ms);
+    };
+    if (this.type === 'love') {
+      const d = new THREE.Group();
+      d.position.z = 0.3;
+      d.add(ring(R, R * 0.66, 0.12, MAT.gold()));
+      d.add(ticks(R, R * 0.66, 72, MAT.onyx(), 0.155));
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * Math.PI * 2 + Math.PI / 8;
+        const sc = screw(R * 0.07);
+        sc.position.set(Math.cos(a) * R * 0.83, Math.sin(a) * R * 0.83, 0.16);
+        sc.rotation.z = a;
+        d.add(sc);
       }
+      const plate = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.6, R * 0.6, 0.08, 96), MAT.onyx());
+      plate.rotation.x = Math.PI / 2;
+      plate.position.z = 0.04;
+      d.add(plate);
+      const center = screw(R * 0.17);
+      center.position.z = 0.1;
+      d.add(center);
+      // 전용 드라이버
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, R * 0.5, 16), MAT.white());
+      shaft.rotation.z = -Math.PI / 2;
+      shaft.position.set(R * 0.25, 0, 0.3);
+      const grip = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.38, 8, 24), MAT.onyx());
+      grip.rotation.z = -Math.PI / 2;
+      grip.position.set(R * 0.64, 0, 0.3);
+      const ferrule = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.06, 24), MAT.gold());
+      ferrule.rotation.z = -Math.PI / 2;
+      ferrule.position.set(R * 0.47, 0, 0.3);
+      d.add(shaft, grip, ferrule);
+      this.door.add(d);
+      this.dials = [d];
+    } else {
+      const bands = [[R, R * 0.78, MAT.rose()], [R * 0.74, R * 0.52, MAT.gold()], [R * 0.48, R * 0.27, MAT.white()]];
+      bands.forEach(([ro, ri, mat], i) => {
+        const d = new THREE.Group();
+        d.position.z = 0.3 + i * 0.04;
+        d.add(ring(ro, ri, 0.1, mat));
+        d.add(ticks(ro, ri, 48 - i * 12, MAT.onyx(), 0.135));
+        this.door.add(d);
+        this.dials.push(d);
+      });
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.24, R * 0.24, 0.12, 64), MAT.onyx());
+      cap.rotation.x = Math.PI / 2;
+      cap.position.z = 0.4;
+      this.door.add(cap);
     }
-    g.save();
-    g.globalAlpha = 1 - open * 0.75;
-    g.fillStyle = '#0b0b0c';
-    g.beginPath(); g.arc(cx, cy, R * 0.22, 0, Math.PI * 2); g.fill();
-    g.strokeStyle = 'rgba(201,169,97,0.5)';
-    g.lineWidth = 1;
-    g.stroke();
-    g.restore();
+    // 금빛 번짐 링 · 째깍 파동
+    this.glow = new THREE.Mesh(new THREE.TorusGeometry(1, 0.012, 8, 160), additive(0xffc977, 0));
+    this.glow.position.z = 0.55;
+    this.door.add(this.glow);
+    this.halo = new THREE.Mesh(new THREE.RingGeometry(0.96, 1.08, 160), additive(0xffc977, 0, null));
+    this.halo.position.z = 0.54;
+    this.door.add(this.halo);
+    this.wave = new THREE.Mesh(new THREE.TorusGeometry(1, 0.006, 6, 160), additive(0xffffff, 0));
+    this.wave.position.z = 0.5;
+    this.door.add(this.wave);
+    // 12시 표시
+    const mark = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.2, 3), MAT.gold());
+    mark.rotation.z = Math.PI;
+    mark.position.set(0, R + 0.22, 0.5);
+    this.door.add(mark);
+    // 진행 표시 3개
+    this.dots = [-1, 0, 1].map((k) => {
+      const m = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.014, 8, 32), MAT.gold());
+      m.position.set(k * 0.32, -2.95, 0.3);
+      scene.add(m);
+      const f = new THREE.Mesh(new THREE.CircleGeometry(0.06, 24), MAT.gold());
+      f.position.copy(m.position);
+      f.visible = false;
+      scene.add(f);
+      return f;
+    });
+
+    scene.add(new THREE.HemisphereLight(0xfff1dd, 0x0a0806, 0.25));
+    const key = new THREE.SpotLight(0xffe6c0, 120, 20, 0.55, 0.7, 1.3);
+    key.position.set(-3, 5, 7);
+    key.target.position.set(0, 0, 0);
+    scene.add(key, key.target);
+    const rimL = new THREE.PointLight(0xc8d4ff, 8, 12);
+    rimL.position.set(4, -3, 3);
+    scene.add(rimL);
+    this.flood = new THREE.PointLight(0xffd9a0, 0, 12);
+    this.flood.position.set(0, 0, -0.3);
+    scene.add(this.flood);
   }
+
+  // 화면 좌표의 다이얼 중심
+  screenCenter() {
+    if (!this.scene) this.build();
+    this.cam.aspect = this.m.W / this.m.H;
+    this.cam.updateProjectionMatrix();
+    this.cam.updateMatrixWorld();
+    const v = new THREE.Vector3(0, 0, 0.3).project(this.cam);
+    return { cx: (v.x * 0.5 + 0.5) * this.m.W, cy: (-v.y * 0.5 + 0.5) * this.m.H };
+  }
+
+  render() {
+    if (!this.scene) this.build();
+    const open = this.opening >= 0 ? clamp(this.opening / 1.2, 0, 1) : 0;
+    const prox = this.opening >= 0 ? 0 : this.prox();
+    if (this.type === 'love') this.dials[0].rotation.z = (-this.angles[0] * Math.PI) / 180;
+    else this.dials.forEach((d, i) => {
+      d.rotation.z = (-this.angles[i] * Math.PI) / 180;
+      d.position.z = 0.3 + i * 0.04 + (i === this.idx ? 0.06 : 0);
+    });
+    const rr = this.type === 'love' ? this.R : [this.R, this.R * 0.74, this.R * 0.48][Math.min(this.idx, 2)];
+    const assist = this.m.store.settings.assist;
+    const p2 = prox * prox;
+    this.glow.scale.setScalar(rr + 0.05);
+    this.glow.material.opacity = assist ? 0.15 + p2 * 0.85 : 0;
+    this.halo.scale.setScalar(rr + 0.05);
+    this.halo.material.opacity = assist ? p2 * 0.35 : 0;
+    this.wave.scale.setScalar(rr * (1.04 + (1 - this.pulseFx) * 0.12));
+    this.wave.material.opacity = this.pulseFx * 0.25 + this.lockFx * 0.6;
+    this.dots.forEach((d, i) => { d.visible = i < this.idx; });
+    // 문이 열린다
+    this.door.rotation.y = open * 1.2;
+    this.door.position.x = -open * 1.8;
+    this.door.position.z = open * 0.8;
+    this.flood.intensity = open * 60;
+    const dist = fitDist(this.cam, 2.95, 3.6);
+    this.cam.position.set(0, -0.3, dist * (1 - open * 0.15));
+    this.cam.lookAt(0, -0.25, 0);
+    draw(this.scene, this.cam);
+  }
+
+  dispose() {}
 }
 
-function screw(g, x, y, r, a) {
-  g.save();
-  g.translate(x, y);
-  g.fillStyle = '#2a251c';
-  g.beginPath(); g.arc(0, 0, r, 0, Math.PI * 2); g.fill();
-  g.strokeStyle = 'rgba(201,169,97,0.85)';
-  g.lineWidth = 1;
-  g.stroke();
-  g.rotate(a);
-  g.beginPath(); g.moveTo(-r * 0.65, 0); g.lineTo(r * 0.65, 0); g.stroke();
-  g.restore();
+function screw(r) {
+  const g = new THREE.Group();
+  const head = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.05, r * 0.45, 32), MAT.gold());
+  head.rotation.x = Math.PI / 2;
+  const slot = new THREE.Mesh(new THREE.BoxGeometry(r * 1.55, r * 0.22, r * 0.3), MAT.onyx());
+  slot.position.z = r * 0.2;
+  g.add(head, slot);
+  return g;
 }

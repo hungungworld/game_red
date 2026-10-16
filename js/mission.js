@@ -5,7 +5,7 @@ import { audio } from './audio.js';
 import { haptics } from './haptics.js';
 import { store } from './store.js';
 import { el, radio, clearRadio, hint, edge, setGaze, setWatch, overlay, closeOverlay, toast } from './ui.js';
-import { drawRed, drawPanther, drawPiece, drawCard } from './figures.js';
+import { getShowcase, Reveal, drawBlank } from './scenes.js';
 import { Corridor } from './stages/corridor.js';
 import { Vault } from './stages/vault.js';
 import { Swap } from './stages/swap.js';
@@ -48,17 +48,19 @@ export class Mission {
 
   start() {
     setGaze(0);
-    const lines = BRIEF.map((l) => `<p class="op"><span>OPERATOR</span>${l}</p>`).join('');
-    const o = overlay(`
-      <div class="brief fade-in">
-        <p class="sub">MISSION · ${this.diff.label}</p>
+    getShowcase().set({ mode: 'piece', piece: this.piece.id, offsetY: 0.27 });
+    const lines = BRIEF.map((l) => `<p class="op">${l}</p>`).join('');
+    overlay(`
+      <div class="window"></div>
+      <div class="panel brief fade-in">
+        <p class="eyebrow">Mission · ${this.diff.label}</p>
         <h2>${this.piece.name}</h2>
-        <canvas id="brief-piece"></canvas>
-        ${lines}
+        <p class="eyebrow dim">${this.piece.line}</p>
+        <div class="ops"><span class="eyebrow">Operator</span>${lines}</div>
         <p class="meta">붉은 복도 → 지하 금고실 → 비밀 전시실 · 약 3분</p>
         <button class="primary" data-a="go">방문 시작</button>
-      </div>`, { cls: 'solid', onAction: (a) => a === 'go' && this.begin() });
-    paintPiece(o.querySelector('#brief-piece'), this.piece.id, { glow: false, silhouette: true });
+        <button class="link" data-a="back">돌아가기</button>
+      </div>`, { cls: 'paper', onAction: (a) => (a === 'go' ? this.begin() : this.exit()) });
   }
 
   begin() {
@@ -75,6 +77,7 @@ export class Mission {
     this.stageStartGaze = this.gaze;
     this.stageGaze = 0;
     this.state = 'transition';
+    this.stage?.dispose?.();
     this.stage = null;
     clearRadio();
     hint('');
@@ -95,7 +98,7 @@ export class Mission {
         <p class="sub">${f.sub}</p>
         <h2>${f.zone}</h2>
         <div class="line"></div>
-      </div>`, { cls: 'solid', onTap: go });
+      </div>`, { cls: 'night', onTap: go });
     const timer = setTimeout(go, 1500);
   }
 
@@ -129,6 +132,10 @@ export class Mission {
     audio.slow();
     haptics.clunk();
     radio('팬더의 걸음.', 1400);
+    const fx = document.getElementById('fx');
+    fx.classList.remove('on');
+    void fx.offsetWidth;
+    fx.classList.add('on');
   }
 
   stageClear(stats) {
@@ -155,6 +162,8 @@ export class Mission {
     clearRadio();
     hint('');
     haptics.hit();
+    this.stage?.dispose?.();
+    this.revealScene = new Reveal();
     for (let i = 0; i < 4; i++) setTimeout(() => this.state === 'reveal' && audio.bell(i), 250 + i * 300);
     this.revealTimer = setTimeout(() => this.showRevealCard(), 2700);
   }
@@ -173,7 +182,7 @@ export class Mission {
           <button class="link" data-a="exit">메종을 떠나기</button>
         </div>
       </div>`, {
-      cls: 'dim',
+      cls: 'veil',
       onAction: (a) => {
         this.revealCard = false;
         if (a === 'retry') this.retry();
@@ -193,6 +202,7 @@ export class Mission {
 
   exit(next) {
     this.state = 'over';
+    this.stage?.dispose?.();
     audio.humStop();
     audio.stopMusic();
     clearRadio();
@@ -205,6 +215,7 @@ export class Mission {
   // ---------- 회수 등급 ----------
   finish() {
     this.state = 'done';
+    this.stage?.dispose?.();
     audio.stopMusic(1.2);
     el.hud.hidden = true;
     const t = this.elapsed;
@@ -247,28 +258,32 @@ export class Mission {
 
   showRedBox() {
     audio.redbox();
+    getShowcase().set({ mode: 'redbox', piece: this.piece.id, offsetY: 0.14 });
     overlay(`
-      <div class="redbox-wrap fade-in">
-        <div class="redbox"><div class="base"></div><div class="inside"><div class="card">INVITATION</div></div><div class="lid"></div></div>
+      <div class="window"></div>
+      <div class="panel night-panel fade-in" style="animation-delay:1.6s">
+        <p class="eyebrow">Panthère · Seal</p>
         <h2>비밀 거래 암호코드</h2>
         <p class="phrase">“팬더는 밤에 걷는다.”</p>
-        <p>전설 등급 회수. 팬더 인장이 찍혔습니다.<br>체험판에서는 실물 선물 초대장이 발급되지 않습니다.<br>정식 버전에서는 이 순간 매장 예약과 일회용 QR이 열립니다.</p>
-        <button class="primary" data-a="next" style="align-self:stretch">계속</button>
-      </div>`, { cls: 'solid', onAction: () => this.showResult() });
+        <p class="meta">전설 등급 회수. 팬더 인장이 찍혔습니다.<br>체험판에서는 실물 선물 초대장이 발급되지 않습니다.<br>정식 버전에서는 이 순간 매장 예약과 일회용 QR이 열립니다.</p>
+        <button class="primary light" data-a="next">계속</button>
+      </div>`, { cls: 'paper dark', onAction: () => this.showResult() });
   }
 
   showResult() {
     const { grade, t, seal, gifts } = this.result;
     const G = GRADE[grade];
+    getShowcase().set({ mode: 'piece', piece: this.piece.id, offsetY: 0.3 });
     const giftHtml = gifts.length
-      ? `<p class="gift">선물 · ${gifts.map((x) => `${x.name} <span>(${x.effect})</span>`).join('<br>선물 · ')}</p>`
+      ? `<p class="gift">${gifts.map((x) => `<b>선물 · ${x.name}</b> ${x.effect}`).join('<br>')}</p>`
       : '';
-    const note = this.mods.easy ? '<p class="gift"><span>판정 범위 완화 중 · 전설 등급은 기록되지 않습니다</span></p>' : '';
-    const o = overlay(`
-      <div class="result fade-in">
-        <p class="sub">회수 완료 · ${this.diff.label}</p>
-        <p class="grade">${G.label} <span style="color:var(--gold)">${grade}</span><small>${this.piece.name} — ${seal ? '팬더 인장이 찍힌 진열' : G.place}</small></p>
-        <canvas id="result-piece"></canvas>
+    const note = this.mods.easy ? '<p class="gift">판정 범위 완화 중 · 전설 등급은 기록되지 않습니다</p>' : '';
+    overlay(`
+      <div class="window"></div>
+      <div class="panel result fade-in">
+        <p class="eyebrow">회수 완료 · ${this.diff.label}</p>
+        <p class="grade">${G.label}<em>${grade}</em></p>
+        <p class="place">${this.piece.name} — ${seal ? '팬더 인장이 찍힌 진열' : G.place}</p>
         <dl>
           <div><dt>시간</dt><dd>${fmtTime(t)}</dd></div>
           <div><dt>시선</dt><dd>${Math.round(this.gaze)}%</dd></div>
@@ -276,19 +291,16 @@ export class Mission {
           <div><dt>팬더의 걸음</dt><dd>${this.pantherSteps}</dd></div>
         </dl>
         ${giftHtml}${note}
-        <div class="stack">
-          <button class="primary" data-a="share">방문 카드 공유하기</button>
-          <button class="ghost" data-a="again">다시 방문하기</button>
-          <button class="link" data-a="salon">나의 살롱으로</button>
-        </div>
+        <button class="primary" data-a="share">방문 카드 공유하기</button>
+        <button class="ghost" data-a="again">다시 방문하기</button>
+        <button class="link" data-a="salon">나의 살롱으로</button>
       </div>`, {
-      cls: 'solid',
+      cls: 'paper',
       onAction: (a) => {
         if (a === 'share') this.share();
         else this.exit(a);
       },
     });
-    paintPiece(o.querySelector('#result-piece'), this.piece.id, { glow: grade !== 'B', card: true, seal });
   }
 
   async share() {
@@ -306,7 +318,7 @@ export class Mission {
   }
 
   // ---------- 매 프레임 ----------
-  frame(dt, g, W, H) {
+  frame(dt, W, H) {
     this.W = W;
     this.H = H;
     if (this.paused) dt = 0;
@@ -314,9 +326,6 @@ export class Mission {
       this.slowT -= dt;
       this.timeScale = this.slowT > 0 ? 0.3 : 1;
     }
-    this.pantherFx = Math.max(0, this.pantherFx - dt * 1.6);
-    this.fade = Math.max(0, this.fade - dt * 2.5);
-
     if (this.state === 'play' && this.stage) {
       this.elapsed += dt;
       this.stage.update(dt * this.timeScale);
@@ -324,28 +333,10 @@ export class Mission {
       this.revealT += dt;
     }
 
-    g.fillStyle = '#000';
-    g.fillRect(0, 0, W, H);
-    if (this.state === 'reveal') this.renderReveal(g, W, H, this.revealT);
-    else if (this.stage && (this.state === 'play' || this.state === 'clear')) {
-      this.stage.render(g, W, H);
-      if (this.pantherFx > 0) {
-        const u = 1 - this.pantherFx;
-        drawPanther(g, -W * 0.6 + u * W * 1.6, H * 0.3, W * 0.9, Math.sin(u * Math.PI) * 0.35);
-      }
-      if (this.timeScale < 1) {
-        g.fillStyle = 'rgba(0,0,0,0.25)';
-        g.fillRect(0, 0, W, H);
-      }
-      if (this.state === 'clear') {
-        g.fillStyle = 'rgba(0,0,0,0.5)';
-        g.fillRect(0, 0, W, H);
-      }
-      if (this.fade > 0) {
-        g.fillStyle = `rgba(0,0,0,${this.fade})`;
-        g.fillRect(0, 0, W, H);
-      }
-    }
+    if (this.state === 'brief' || this.state === 'done') getShowcase().render(dt);
+    else if (this.state === 'reveal' && this.revealScene) this.revealScene.render(this.revealT);
+    else if (this.stage && (this.state === 'play' || this.state === 'clear')) this.stage.render();
+    else drawBlank();
 
     // 탱크 시계: 제한 시간이 있는 단계는 남은 시간, 아니면 3분 기준
     if (this.stage && this.stage.timeLimit) {
@@ -354,87 +345,4 @@ export class Mission {
       setWatch(1 - Math.min(1, this.elapsed / S_TIME), false);
     }
   }
-
-  // 사이렌 없이: 샹들리에가 하나씩 켜지고, 관리인의 실루엣, 레드는 모자를 들어 인사한 뒤 물러난다
-  renderReveal(g, W, H, t) {
-    const lit = clamp((t - 0.25) / 1.2, 0, 1);
-    const bg = g.createLinearGradient(0, 0, 0, H);
-    bg.addColorStop(0, `rgba(60,48,34,${lit * 0.9})`);
-    bg.addColorStop(1, `rgba(20,16,12,${lit})`);
-    g.fillStyle = bg;
-    g.fillRect(0, 0, W, H);
-    // 대리석 바닥
-    g.strokeStyle = `rgba(201,169,97,${0.2 + lit * 0.3})`;
-    g.lineWidth = 1;
-    g.beginPath(); g.moveTo(0, H * 0.74); g.lineTo(W, H * 0.74); g.stroke();
-    // 샹들리에
-    for (let i = 0; i < 4; i++) {
-      const x = W * (0.14 + i * 0.24);
-      const y = H * 0.16;
-      const on = t > 0.25 + i * 0.3;
-      g.strokeStyle = 'rgba(201,169,97,0.6)';
-      g.beginPath(); g.moveTo(x, 0); g.lineTo(x, y - 10); g.stroke();
-      g.beginPath(); g.arc(x, y, 12, 0, Math.PI); g.stroke();
-      g.beginPath(); g.arc(x, y + 6, 6, 0, Math.PI); g.stroke();
-      if (on) {
-        const k = clamp((t - 0.25 - i * 0.3) / 0.3, 0, 1);
-        const rg = g.createRadialGradient(x, y, 2, x, y, W * 0.35);
-        rg.addColorStop(0, `rgba(255,236,200,${0.55 * k})`);
-        rg.addColorStop(1, 'rgba(255,236,200,0)');
-        g.fillStyle = rg;
-        g.fillRect(x - W * 0.35, y - W * 0.35, W * 0.7, W * 0.7);
-      }
-    }
-    // 계단과 관리인
-    g.strokeStyle = `rgba(201,169,97,${0.15 + lit * 0.35})`;
-    g.beginPath();
-    let sx = W * 0.52;
-    let sy = H * 0.74;
-    g.moveTo(sx, sy);
-    for (let i = 0; i < 7; i++) {
-      sy -= H * 0.035;
-      g.lineTo(sx, sy);
-      sx += W * 0.065;
-      g.lineTo(sx, sy);
-    }
-    g.stroke();
-    const ga = clamp((t - 1.1) / 0.5, 0, 1);
-    if (ga > 0) drawRed(g, W * 0.86, sy, 'stand', 0, { scale: 1.8, alpha: ga, body: '#0a0806', rim: 'rgba(255,236,200,0.35)', flip: true, hat: 'cap' });
-    // 레드: 모자를 들어 인사한 뒤 어둠 속으로
-    const lift = clamp((t - 1.5) / 0.4, 0, 1) * (1 - clamp((t - 2.2) / 0.3, 0, 1));
-    const away = clamp((t - 2.2) / 0.6, 0, 1);
-    drawRed(g, W * 0.3 - away * W * 0.25, H * 0.74, 'stand', 0, {
-      scale: 2.4, hatLift: lift * 7, alpha: 1 - away, rim: 'rgba(255,236,200,0.75)',
-    });
-  }
 }
-
-function paintPiece(cv, id, o) {
-  if (!cv) return;
-  const r = cv.getBoundingClientRect();
-  const dpr = Math.min(window.devicePixelRatio || 1, 3);
-  cv.width = Math.round(r.width * dpr);
-  cv.height = Math.round(r.height * dpr);
-  const g = cv.getContext('2d');
-  g.scale(dpr, dpr);
-  const w = r.width;
-  const h = r.height;
-  const size = Math.min(w * 0.5, h * 0.7);
-  if (o.glow) {
-    const sg = g.createLinearGradient(0, 0, 0, h);
-    sg.addColorStop(0, 'rgba(255,236,200,0)');
-    sg.addColorStop(1, 'rgba(255,236,200,0.07)');
-    g.fillStyle = sg;
-    g.beginPath(); g.moveTo(w / 2 - 6, 0); g.lineTo(w / 2 + 6, 0); g.lineTo(w / 2 + size * 0.8, h); g.lineTo(w / 2 - size * 0.8, h); g.fill();
-  }
-  drawPiece(g, id, w / 2, h * 0.46, size, o);
-  if (o.card) drawCard(g, w / 2 + size * 0.62, h * 0.82, Math.min(54, w * 0.16), -0.12);
-  if (o.seal) {
-    g.strokeStyle = '#c9a961';
-    g.lineWidth = 1;
-    g.beginPath(); g.arc(w / 2 - size * 0.66, h * 0.8, 14, 0, Math.PI * 2); g.stroke();
-    drawPanther(g, w / 2 - size * 0.66 - 10, h * 0.8 - 5, 20, 1);
-  }
-}
-
-export { paintPiece };

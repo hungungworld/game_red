@@ -5,7 +5,7 @@
 
 ## 바로 실행
 
-빌드 과정이 없는 정적 사이트입니다 (Vanilla JS · Canvas 2D · WebAudio, 외부 라이브러리 없음).
+빌드 과정이 없는 정적 사이트입니다 (Vanilla JS · **Three.js 3D** · WebAudio). Three.js(r169)는 `vendor/`에 포함되어 있어 CDN 없이 동작합니다.
 
 ```bash
 python3 -m http.server 8000
@@ -17,6 +17,15 @@ ES 모듈을 쓰므로 `file://`로 열면 동작하지 않습니다. 정적 호
 
 - `?play=1` — 타이틀을 건너뛰고 바로 브리핑으로 (QR·광고 랜딩용)
 - `?play=1&piece=clou` — 특정 피스 미션으로 바로 진입 (`panthere-brooch`, `love-bracelet`, `trinity-ring`, `panthere-ring`, `clou`)
+
+## 비주얼 방향 (v0.2 · 3D)
+
+- **메뉴 = 메종의 종이**: 상아색 바탕, 검정 글자, 자간 넓은 대문자 라벨(Jost), 대비 높은 세리프(Cormorant Garamond · Noto Serif KR), 모서리 없는 검정 버튼, 1px 구분선. 화면 절반은 비우고 그 자리에 3D 보석을 둡니다.
+- **타이틀**: 아이보리 스튜디오에서 열린 레드 박스 안의 '오늘 밤의 의뢰' 피스가 천천히 회전.
+- **게임 = 밤의 메종**: 검은 대리석 바닥, 아르데코 금빛 선, 붉은 레이저 커튼, 샹들리에 불빛, 금고는 로즈·옐로·화이트 골드 PBR 링, 전시실은 검은 벨벳 진열대와 스포트라이트 하나.
+- 붉은색은 레이저·레드 박스·정체 드러남 같은 결정적 순간에만 씁니다.
+- 모든 3D 모델(레드, 관리인, 피스 5종, 레드 박스, 샹들리에)은 코드로 만든 절차적 모델이며 외부 에셋 파일이 없습니다.
+- 카메라는 화면 비율에 맞춰 거리를 자동 계산해 어떤 휴대폰에서도 잘리지 않습니다.
 
 ## 한 판의 흐름 (약 2~3분)
 
@@ -72,10 +81,14 @@ index.html            화면 골격 (타이틀 · 살롱 · 설정 · HUD)
 css/style.css         검정·레드·금색 1px 선 스타일
 js/main.js            화면 전환, 입력, 루프, 일시정지
 js/mission.js         단계 흐름, 시선 게이지, 정체 드러남 연출, 등급·보상
-js/stages/corridor.js 레이저 회랑 + 관리인 순찰 (횡스크롤)
-js/stages/vault.js    Love · Trinity 금고
-js/stages/swap.js     벨벳 레플리카 바꿔치기
-js/figures.js         레드·팬더·컬렉션 피스·방문 카드 그리기
+js/gfx.js             WebGL 렌더러, 환경광, 재질(골드·래커·벨벳·대리석), 화면비 카메라 맞춤
+js/models.js          3D 레드·관리인, 피스 5종, 레드 박스, 샹들리에, 방문 카드, 레이저
+js/scenes.js          타이틀·브리핑·결과 쇼케이스, 정체 드러남 장면, 살롱 썸네일
+js/stages/corridor.js 레이저 회랑 + 관리인 순찰 (3D 추적 카메라)
+js/stages/vault.js    Love · Trinity 금고 (3D 다이얼)
+js/stages/swap.js     벨벳 레플리카 바꿔치기 (3D 전시실 + 게이지)
+js/figures.js         방문 카드 텍스처용 2D 그림
+vendor/               three.module.min.js, RoomEnvironment.js (MIT)
 js/audio.js           WebAudio 합성 음악·효과음
 js/haptics.js         진동 패턴 3단계
 js/data.js            피스·난이도·도구 데이터

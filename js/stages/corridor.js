@@ -1,10 +1,10 @@
 // 1단계 레이저 회랑 + 단계 사이 야간 관리인 순찰 구간 (같은 횡스크롤 엔진)
 import { clamp, rand, pingpong, shuffle } from '../util.js';
-import { drawRed } from '../figures.js';
+import { THREE, K, MAT, getEnv, marbleTex, glowTex, fadeTex, additive, barMatrix, instanced, draw } from '../gfx.js';
+import { Figure, buildBeam, buildChandelier } from '../models.js';
 import { audio } from '../audio.js';
 import { radio, hint } from '../ui.js';
 
-const VIEW_W = 320;
 const WALK = 92;
 const SLIDE_K = 1.75;
 const SLIDE_T = 0.55;
@@ -272,225 +272,293 @@ export class Corridor {
     }
   }
 
-  // ---------- 그리기 ----------
-  render(g, W, H) {
-    const s = W / VIEW_W;
-    const vh = H / s;
-    const p = this.p;
-    const floorY = vh * 0.6;
-    const ceilY = floorY - 150;
-    const cam = clamp(p.x - VIEW_W * 0.32, -30, Math.max(-30, this.length - VIEW_W * 0.62));
-    const px = 1 / s;
-    g.save();
-    g.scale(s, s);
+  // ---------- 3D ----------
+  build() {
+    const kind = this.kind;
+    const L = (this.length + 400) * K;
+    const scene = new THREE.Scene();
+    this.scene = scene;
+    scene.background = new THREE.Color(0x030303);
+    scene.fog = new THREE.Fog(0x030303, 9, 26);
+    scene.environment = getEnv();
+    scene.environmentIntensity = 0.22;
+    this.cam = new THREE.PerspectiveCamera(58, 0.5, 0.1, 60);
 
-    g.fillStyle = '#000';
-    g.fillRect(0, 0, VIEW_W, vh);
-    // 벽
-    const wg = g.createLinearGradient(0, ceilY, 0, floorY);
-    wg.addColorStop(0, '#050506');
-    wg.addColorStop(1, this.kind === 'laser' ? '#141012' : '#13110f');
-    g.fillStyle = wg;
-    g.fillRect(0, ceilY, VIEW_W, floorY - ceilY);
-    // 아르데코 문양
-    g.lineWidth = px;
-    const step = 96;
-    for (let wx = Math.floor((cam - 60) / step) * step; wx < cam + VIEW_W + step; wx += step) {
-      const sx = wx - cam;
-      g.strokeStyle = 'rgba(201,169,97,0.16)';
-      g.beginPath();
-      g.moveTo(sx, ceilY + 10);
-      g.lineTo(sx, floorY - 16);
-      g.stroke();
-      fan(g, sx + step / 2, floorY - 16, 34);
-      fan(g, sx + step / 2, ceilY + 10, 18, true);
+    // 바닥: 검은 대리석 + 흰 결
+    const floorTex = marbleTex('#0d0c0d', '#d8d0c4', [L / 4, 1.5], 10);
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(L + 20, 6),
+      new THREE.MeshPhysicalMaterial({ map: floorTex, roughness: 0.16, clearcoat: 1, clearcoatRoughness: 0.06 }),
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(L / 2 - 5, 0, 0.6);
+    floor.receiveShadow = true;
+    scene.add(floor);
+    // 벽: 흰 대리석 패널을 어둠 속에
+    const wallTex = marbleTex('#e7e1d6', '#8f8578', [L / 5, 1], 8);
+    const wall = new THREE.Mesh(new THREE.PlaneGeometry(L + 20, 5), new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.35, color: 0x6a645c }));
+    wall.position.set(L / 2 - 5, 2.5, -2.1);
+    scene.add(wall);
+    const ceil = new THREE.Mesh(new THREE.PlaneGeometry(L + 20, 6), new THREE.MeshStandardMaterial({ color: 0x0b0a09, roughness: 1 }));
+    ceil.rotation.x = Math.PI / 2;
+    ceil.position.set(L / 2 - 5, 4.6, 0.6);
+    scene.add(ceil);
+
+    // 아르데코 금빛 선 (한 번의 드로우콜)
+    const bars = [];
+    const pil = [];
+    const step = 3.3;
+    for (let x = -4; x < L; x += step) {
+      pil.push(new THREE.Matrix4().compose(new THREE.Vector3(x, 2.3, -1.98), new THREE.Quaternion(), new THREE.Vector3(0.34, 4.6, 0.24)));
+      bars.push(barMatrix(new THREE.Vector3(x - 0.17, 0.02, -1.85), new THREE.Vector3(x - 0.17, 4.5, -1.85), 0.012));
+      bars.push(barMatrix(new THREE.Vector3(x + 0.17, 0.02, -1.85), new THREE.Vector3(x + 0.17, 4.5, -1.85), 0.012));
+      const cx = x + step / 2;
+      const z = -2.06;
+      // 액자
+      const fx0 = cx - 1.15;
+      const fx1 = cx + 1.15;
+      for (const [a, b] of [[[fx0, 0.45], [fx1, 0.45]], [[fx0, 3.7], [fx1, 3.7]], [[fx0, 0.45], [fx0, 3.7]], [[fx1, 0.45], [fx1, 3.7]]]) {
+        bars.push(barMatrix(new THREE.Vector3(a[0], a[1], z), new THREE.Vector3(b[0], b[1], z), 0.014, 0.01));
+      }
+      // 부채꼴 햇살 문양
+      const r = 0.95;
+      for (let k = 0; k <= 8; k++) {
+        const an = (k / 8) * Math.PI;
+        bars.push(barMatrix(new THREE.Vector3(cx, 0.45, z), new THREE.Vector3(cx + Math.cos(an) * r, 0.45 + Math.sin(an) * r, z), 0.008, 0.008));
+      }
+      for (let k = 0; k < 16; k++) {
+        const a0 = (k / 16) * Math.PI;
+        const a1 = ((k + 1) / 16) * Math.PI;
+        for (const rr of [r, r * 0.55]) {
+          bars.push(barMatrix(new THREE.Vector3(cx + Math.cos(a0) * rr, 0.45 + Math.sin(a0) * rr, z), new THREE.Vector3(cx + Math.cos(a1) * rr, 0.45 + Math.sin(a1) * rr, z), 0.01, 0.008));
+        }
+      }
+      // 마름모
+      const dy = 2.75;
+      const dd = 0.32;
+      const pts = [[cx, dy + dd], [cx + dd, dy], [cx, dy - dd], [cx - dd, dy], [cx, dy + dd]];
+      for (let k = 0; k < 4; k++) bars.push(barMatrix(new THREE.Vector3(pts[k][0], pts[k][1], z), new THREE.Vector3(pts[k + 1][0], pts[k + 1][1], z), 0.01, 0.008));
     }
-    g.strokeStyle = 'rgba(201,169,97,0.4)';
-    hline(g, 0, VIEW_W, ceilY);
-    hline(g, 0, VIEW_W, ceilY + 10);
-    hline(g, 0, VIEW_W, floorY - 16);
-    // 대리석 바닥
-    const fg = g.createLinearGradient(0, floorY, 0, floorY + 110);
-    fg.addColorStop(0, '#1d1c1e');
-    fg.addColorStop(1, '#000');
-    g.fillStyle = fg;
-    g.fillRect(0, floorY, VIEW_W, 110);
-    g.strokeStyle = 'rgba(239,232,220,0.06)';
-    for (const dy of [7, 19, 37, 64]) hline(g, 0, VIEW_W, floorY + dy);
-    for (let wx = Math.floor(cam / 70) * 70; wx < cam + VIEW_W + 70; wx += 70) {
-      const sx = wx - cam;
-      g.beginPath();
-      g.moveTo(sx, floorY);
-      g.lineTo(sx - 30, floorY + 70);
-      g.stroke();
+    const box = new THREE.BoxGeometry(1, 1, 1);
+    scene.add(instanced(box, MAT.gold(), bars));
+    const pilMat = new THREE.MeshStandardMaterial({ map: marbleTex('#1a1817', '#cfc6b8', [1, 3], 6), roughness: 0.25 });
+    scene.add(instanced(box, pilMat, pil));
+    for (const y of [0.12, 4.15, 4.3]) {
+      const c = new THREE.Mesh(new THREE.BoxGeometry(L + 20, y < 1 ? 0.24 : 0.05, 0.12), y < 1 ? pilMat : MAT.gold());
+      c.position.set(L / 2 - 5, y, -2.02);
+      scene.add(c);
     }
-    g.strokeStyle = 'rgba(201,169,97,0.45)';
-    hline(g, 0, VIEW_W, floorY);
 
-    this.drawEnd(g, this.length - cam, floorY, ceilY, px);
-
-    if (this.kind === 'laser') this.drawLasers(g, cam, floorY, ceilY, px);
-    else this.drawLights(g, cam, floorY, ceilY);
+    // 조명: 따뜻한 키 라이트가 레드를 따라온다
+    scene.add(new THREE.HemisphereLight(0x8a7560, 0x050403, 0.35));
+    this.key = new THREE.PointLight(0xffd9a8, 16, 10, 1.6);
+    this.key.castShadow = false;
+    scene.add(this.key);
 
     // 레드
-    const blink = p.inv > 0 && Math.floor(p.inv * 12) % 2 === 0;
-    const sx = p.x - cam;
-    // 바닥 반사
-    g.save();
-    g.globalAlpha = 0.12;
-    g.translate(0, floorY * 2);
-    g.scale(1, -1);
-    drawRed(g, sx, floorY - p.jy, p.mode, p.ph, { alpha: blink ? 0.4 : 1 });
-    g.restore();
-    drawRed(g, sx, floorY - p.jy, p.mode, p.ph, {
-      alpha: blink ? 0.35 : 1,
-      rim: this.lit ? 'rgba(255,236,200,0.95)' : undefined,
+    this.fig = new Figure();
+    scene.add(this.fig.group);
+    this.shadow = new THREE.Mesh(new THREE.CircleGeometry(0.42, 32), new THREE.MeshBasicMaterial({ map: glowTex(), color: 0x000000, transparent: true, opacity: 0.6, depthWrite: false }));
+    this.shadow.rotation.x = -Math.PI / 2;
+    this.shadow.position.y = 0.005;
+    scene.add(this.shadow);
+
+    if (kind === 'laser') this.buildLasers(scene);
+    else this.buildLights(scene);
+    this.buildEnd(scene);
+  }
+
+  buildLasers(scene) {
+    this.redLights = [0, 1].map(() => {
+      const l = new THREE.PointLight(0xff1a30, 0, 4.5, 1.8);
+      scene.add(l);
+      return l;
     });
-
-    g.restore();
+    const gold = MAT.gold();
+    const emitterGeo = new THREE.BoxGeometry(0.12, 0.06, 0.12);
+    const postGeo = new THREE.CylinderGeometry(0.03, 0.035, 1, 16);
+    for (const o of this.obs) {
+      const x = o.x * K;
+      const g = new THREE.Group();
+      g.position.x = x;
+      o.beams = [];
+      if (o.type === 'gate') {
+        for (const z of [-1.5, -0.75, 0, 0.75, 1.5]) {
+          const b = buildBeam();
+          b.position.set(0, 2.15, z);
+          b.scale.y = 4.2;
+          const e1 = new THREE.Mesh(emitterGeo, gold);
+          e1.position.set(0, 4.27, z);
+          const e2 = new THREE.Mesh(emitterGeo, gold);
+          e2.position.set(0, 0.03, z);
+          g.add(b, e1, e2);
+          o.beams.push(b);
+        }
+      } else {
+        const b = buildBeam();
+        b.rotation.x = Math.PI / 2;
+        b.scale.y = 3.9;
+        g.add(b);
+        o.beams.push(b);
+        o.bar = b;
+        const top = (o.type === 'sweep' ? o.hi : o.h) * K + 0.25;
+        for (const z of [-1.95, 1.95]) {
+          const post = new THREE.Mesh(postGeo, gold);
+          post.scale.y = top;
+          post.position.set(0, top / 2, z);
+          post.castShadow = true;
+          g.add(post);
+          const cap = new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 12), gold);
+          cap.position.set(0, top, z);
+          g.add(cap);
+        }
+        o.heads = [-1.95, 1.95].map((z) => {
+          const h = new THREE.Mesh(emitterGeo, MAT.onyx());
+          h.position.set(0, 0, z);
+          g.add(h);
+          return h;
+        });
+      }
+      // 바닥에 비치는 붉은 빛
+      const pool = new THREE.Mesh(new THREE.PlaneGeometry(o.type === 'gate' ? 0.9 : 1.1, 4.4), additive(0xff1030, 0.2, glowTex()));
+      pool.rotation.x = -Math.PI / 2;
+      pool.position.y = 0.006;
+      g.add(pool);
+      o.pool = pool;
+      scene.add(g);
+      o.g = g;
+    }
   }
 
-  drawEnd(g, x, floorY, ceilY, px) {
-    if (x > VIEW_W + 60) return;
-    g.lineWidth = px;
-    g.strokeStyle = 'rgba(201,169,97,0.8)';
+  buildLights(scene) {
+    this.spot = new THREE.SpotLight(0xffe9c8, 0, 9, 0.42, 0.6, 1.2);
+    scene.add(this.spot, this.spot.target);
+    for (const o of this.obs) {
+      const ch = buildChandelier(0.9);
+      ch.position.set(((o.x0 + o.x1) / 2) * K, 3.95, -0.2);
+      ch.userData.bulb.emissiveIntensity = 1.4;
+      ch.userData.glow.material.opacity = 0.5;
+      scene.add(ch);
+      o.ch = ch;
+      const cone = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 1, 1, 32, 1, true), additive(0xffe2b8, 0.16, fadeTex()));
+      scene.add(cone);
+      o.cone = cone;
+      const pool = new THREE.Mesh(new THREE.CircleGeometry(1, 48), additive(0xffe7c4, 0.32, glowTex()));
+      pool.rotation.x = -Math.PI / 2;
+      pool.scale.set(o.r * K * 1.3, o.r * K * 1.3 * 0.8, 1);
+      scene.add(pool);
+      o.pool = pool;
+    }
+  }
+
+  buildEnd(scene) {
+    const x = this.length * K + 0.6;
+    const g = new THREE.Group();
+    g.position.set(x, 0, -1.6);
     if (this.end === 'vault') {
-      g.fillStyle = '#0c0c0d';
-      g.beginPath(); g.arc(x + 40, floorY - 62, 56, 0, Math.PI * 2); g.fill(); g.stroke();
-      g.beginPath(); g.arc(x + 40, floorY - 62, 44, 0, Math.PI * 2); g.stroke();
-      for (let i = 0; i < 8; i++) {
-        const a = (i / 8) * Math.PI * 2;
-        g.beginPath(); g.arc(x + 40 + Math.cos(a) * 50, floorY - 62 + Math.sin(a) * 50, 2, 0, Math.PI * 2); g.stroke();
-      }
+      const door = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 0.3, 64), MAT.steel());
+      door.rotation.x = Math.PI / 2;
+      door.position.y = 1.7;
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(1.5, 0.05, 12, 96), MAT.gold());
+      rim.position.set(0, 1.7, 0.16);
+      const hub = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.03, 12, 64), MAT.gold());
+      hub.position.set(0, 1.7, 0.17);
+      g.add(door, rim, hub);
     } else if (this.end === 'curtain') {
-      g.fillStyle = '#16090c';
-      g.fillRect(x, ceilY + 10, 80, floorY - ceilY - 10);
-      g.strokeStyle = 'rgba(201,169,97,0.25)';
-      for (let i = 1; i < 8; i++) {
-        g.beginPath(); g.moveTo(x + i * 10, ceilY + 12); g.lineTo(x + i * 10 + Math.sin(i) * 3, floorY); g.stroke();
-      }
-      g.strokeStyle = 'rgba(201,169,97,0.8)';
-      g.strokeRect(x, ceilY + 10, 80, floorY - ceilY - 10);
+      const geo = new THREE.PlaneGeometry(3, 4.3, 60, 1);
+      const pos = geo.attributes.position;
+      for (let i = 0; i < pos.count; i++) pos.setZ(i, Math.sin(pos.getX(i) * 9) * 0.06);
+      geo.computeVertexNormals();
+      const c = new THREE.Mesh(geo, MAT.velvetRed());
+      c.position.set(0.6, 2.15, 0.3);
+      g.add(c);
     } else {
-      // 아치형 문
-      g.fillStyle = '#080808';
-      g.beginPath();
-      g.moveTo(x, floorY);
-      g.lineTo(x, ceilY + 60);
-      g.arc(x + 36, ceilY + 60, 36, Math.PI, 0);
-      g.lineTo(x + 72, floorY);
-      g.closePath();
-      g.fill();
-      g.stroke();
-      g.beginPath(); g.moveTo(x + 36, ceilY + 24); g.lineTo(x + 36, floorY); g.stroke();
-    }
-  }
-
-  drawLasers(g, cam, floorY, ceilY, px) {
-    g.save();
-    g.globalCompositeOperation = 'lighter';
-    for (const o of this.obs) {
-      const x = o.x - cam;
-      if (x < -60 || x > VIEW_W + 60) continue;
-      const on = this.isOn(o);
-      const a = !on ? 0.07 : this.dimmed(o) ? 0.38 : 1;
-      if (o.type === 'gate') {
-        beam(g, x, ceilY + 10, x, floorY, a, px);
-        beam(g, x, floorY, x, floorY + 40, a * 0.18, px);
-      } else {
-        const h = o.type === 'sweep' ? this.sweepH(o) : o.h;
-        const y = floorY - h;
-        beam(g, x - o.len / 2, y, x + o.len / 2, y, a, px);
-        beam(g, x - o.len / 2, floorY + h, x + o.len / 2, floorY + h, a * 0.16, px);
+      const frame = [];
+      const pts = [];
+      for (let k = 0; k <= 16; k++) {
+        const a = (k / 16) * Math.PI;
+        pts.push(new THREE.Vector3(0.6 + Math.cos(a) * 0.9, 3 + Math.sin(a) * 0.9, 0.2));
       }
+      frame.push(barMatrix(new THREE.Vector3(1.5, 0, 0.2), new THREE.Vector3(1.5, 3, 0.2), 0.05));
+      frame.push(barMatrix(new THREE.Vector3(-0.3, 0, 0.2), new THREE.Vector3(-0.3, 3, 0.2), 0.05));
+      for (let k = 0; k < 16; k++) frame.push(barMatrix(pts[k], pts[k + 1], 0.05));
+      g.add(instanced(new THREE.BoxGeometry(1, 1, 1), MAT.gold(), frame));
+      const dark = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 3.9), new THREE.MeshBasicMaterial({ color: 0x000000 }));
+      dark.position.set(0.6, 1.95, 0.15);
+      g.add(dark);
     }
-    g.restore();
-    // 발광부 (금색 1px)
-    g.lineWidth = px;
-    g.strokeStyle = 'rgba(201,169,97,0.6)';
-    for (const o of this.obs) {
-      if (o.type === 'gate') {
-        const x = o.x - cam;
-        g.strokeRect(x - 4, ceilY + 10, 8, 5);
-        g.strokeRect(x - 4, floorY - 5, 8, 5);
-      } else {
-        const x = o.x - cam;
-        const y = floorY - (o.type === 'sweep' ? o.hi : o.h);
-        g.beginPath();
-        g.moveTo(x - o.len / 2 - 3, floorY); g.lineTo(x - o.len / 2 - 3, y - 4);
-        g.moveTo(x + o.len / 2 + 3, floorY); g.lineTo(x + o.len / 2 + 3, y - 4);
-        g.stroke();
+    scene.add(g);
+  }
+
+  render() {
+    if (!this.scene) this.build();
+    const p = this.p;
+    const px = p.x * K;
+    // 레드
+    this.fig.group.position.set(px, p.jy * K, 0);
+    this.fig.setPose(p.mode, p.ph);
+    const blink = p.inv > 0 && Math.floor(p.inv * 12) % 2 === 0;
+    this.fig.group.visible = !blink;
+    this.shadow.position.x = px + 0.05;
+    this.shadow.scale.setScalar(1 - Math.min(0.6, p.jy * K));
+    this.key.position.set(px + 1.2, 3.9, -0.9);
+
+    if (this.kind === 'laser') {
+      const near = [];
+      for (const o of this.obs) {
+        const on = this.isOn(o);
+        const a = !on ? 0.06 : this.dimmed(o) ? 0.35 : 1;
+        for (const b of o.beams) b.userData.set(a);
+        o.pool.material.opacity = 0.12 * a;
+        if (o.bar) {
+          const h = (o.type === 'sweep' ? this.sweepH(o) : o.h) * K;
+          o.bar.position.y = h;
+          for (const hd of o.heads) hd.position.y = h;
+          o.pool.position.y = 0.006;
+        }
+        const d = o.x * K - px;
+        if (on && d > -2 && d < 7) near.push({ o, d, a });
       }
+      near.sort((u, v) => Math.abs(u.d) - Math.abs(v.d));
+      this.redLights.forEach((l, i) => {
+        const n = near[i];
+        if (!n) { l.intensity = 0; return; }
+        l.position.set(n.o.x * K, n.o.bar ? n.o.bar.position.y + 0.3 : 1.6, 0.4);
+        l.intensity = 9 * n.a;
+      });
+    } else {
+      let best = null;
+      for (const o of this.obs) {
+        const cx = this.lightX(o) * K;
+        const top = o.ch.position;
+        const bottom = new THREE.Vector3(cx, 0, 0);
+        const len = top.distanceTo(bottom);
+        o.cone.position.copy(top).add(bottom).multiplyScalar(0.5);
+        o.cone.scale.set(o.r * K * 1.1, len, o.r * K * 0.9);
+        o.cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), bottom.clone().sub(top).normalize());
+        o.pool.position.set(cx, 0.008, 0);
+        if (!best || Math.abs(cx - px) < Math.abs(best.cx - px)) best = { o, cx };
+      }
+      if (best) {
+        this.spot.position.copy(best.o.ch.position);
+        this.spot.target.position.set(best.cx, 0, 0);
+        this.spot.intensity = 30;
+      }
+      this.fig.mat.emissive?.setHex(this.lit ? 0x2a2216 : 0x000000);
     }
+
+    // 카메라: 레드의 오른쪽 뒤에서 회랑 앞쪽을 내다보는 추적 시점
+    const slow = this.m.timeScale < 1 ? 1 : 0;
+    this.camK = (this.camK ?? 1) + ((slow ? 0.72 : 1) - (this.camK ?? 1)) * 0.08;
+    const k = this.camK;
+    this.camX = this.camX === undefined ? px : this.camX + (px - this.camX) * 0.15;
+    const cx = this.camX;
+    this.cam.position.set(cx - 5.4 * k, 2.7 * k + 0.4, 2.7 * k);
+    this.cam.lookAt(cx + 3.6, 0.8, -0.7);
+    draw(this.scene, this.cam);
   }
 
-  drawLights(g, cam, floorY, ceilY) {
-    for (const o of this.obs) {
-      const cx = this.lightX(o) - cam;
-      if (cx < -80 || cx > VIEW_W + 80) continue;
-      // 샹들리에
-      const chx = (o.x0 + o.x1) / 2 - cam;
-      g.strokeStyle = 'rgba(201,169,97,0.5)';
-      g.beginPath(); g.moveTo(chx, ceilY); g.lineTo(chx, ceilY + 16); g.stroke();
-      g.beginPath(); g.arc(chx, ceilY + 20, 6, 0, Math.PI); g.stroke();
-      // 빛줄기
-      const cg = g.createLinearGradient(0, ceilY + 20, 0, floorY);
-      cg.addColorStop(0, 'rgba(255,236,200,0.0)');
-      cg.addColorStop(1, 'rgba(255,236,200,0.09)');
-      g.fillStyle = cg;
-      g.beginPath();
-      g.moveTo(chx - 3, ceilY + 22);
-      g.lineTo(chx + 3, ceilY + 22);
-      g.lineTo(cx + o.r, floorY);
-      g.lineTo(cx - o.r, floorY);
-      g.closePath();
-      g.fill();
-      // 바닥의 불빛
-      g.save();
-      g.translate(cx, floorY + 3);
-      g.scale(1, 0.22);
-      const rg = g.createRadialGradient(0, 0, 2, 0, 0, o.r);
-      rg.addColorStop(0, 'rgba(255,236,200,0.55)');
-      rg.addColorStop(1, 'rgba(255,236,200,0)');
-      g.fillStyle = rg;
-      g.beginPath(); g.arc(0, 0, o.r, 0, Math.PI * 2); g.fill();
-      g.restore();
-    }
-  }
-}
-
-function hline(g, x0, x1, y) {
-  g.beginPath();
-  g.moveTo(x0, y);
-  g.lineTo(x1, y);
-  g.stroke();
-}
-
-function fan(g, x, y, r, down = false) {
-  g.strokeStyle = 'rgba(201,169,97,0.13)';
-  const dir = down ? 1 : -1;
-  g.beginPath();
-  g.arc(x, y, r, down ? 0 : Math.PI, down ? Math.PI : Math.PI * 2);
-  g.stroke();
-  for (let i = 1; i < 6; i++) {
-    const a = (i / 6) * Math.PI;
-    g.beginPath();
-    g.moveTo(x, y);
-    g.lineTo(x + Math.cos(a) * r, y + dir * Math.sin(a) * r);
-    g.stroke();
-  }
-}
-
-function beam(g, x1, y1, x2, y2, a, px) {
-  if (a <= 0) return;
-  g.lineCap = 'round';
-  const layers = [[8, 0.07], [3.5, 0.22], [1.3, 0.95]];
-  for (const [w, al] of layers) {
-    g.strokeStyle = w < 2 ? `rgba(255,170,170,${al * a})` : `rgba(255,30,50,${al * a})`;
-    g.lineWidth = w * (w < 2 ? px * 1.4 : 1);
-    g.beginPath();
-    g.moveTo(x1, y1);
-    g.lineTo(x2, y2);
-    g.stroke();
+  dispose() {
+    this.scene?.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
   }
 }

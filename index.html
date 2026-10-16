@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<meta name="theme-color" content="#000000">
+<meta name="theme-color" content="#f3eee6">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -14,8 +14,9 @@
 <link rel="apple-touch-icon" href="assets/icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500&family=Noto+Serif+KR:wght@400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&family=Jost:wght@300;400;500&family=Noto+Sans+KR:wght@300;400;500&family=Noto+Serif+KR:wght@300;400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
 </head>
 <body>
 <div id="app">
@@ -46,17 +47,20 @@
   <div id="radio" aria-live="polite"></div>
   <div id="hint"></div>
   <div id="toast"></div>
+  <svg id="fx" viewBox="0 0 100 40" aria-hidden="true"><path d="M100 13C99 8 95 5 90 5L88 1L85 5C78 6 70 9 58 10C44 10 32 8 22 11C14 12 8 4 0 6C6 7 10 14 17 17C16 24 10 31 3 37L8 39C16 33 22 28 27 22C38 25 50 25 62 23C70 28 80 34 88 37L92 35C86 30 81 25 79 21C85 19 92 19 98 17Z"/></svg>
 
   <section id="screen-title" class="screen">
-    <div class="title-top">
-      <p class="kicker">CODENAME</p>
-      <h1>코드네임:<br><em>레드</em></h1>
-      <p class="tagline">레이저를 피하고, 금고를 열고,<br>방문 카드 한 장만 남긴다.</p>
-    </div>
+    <header class="masthead">
+      <p class="eyebrow">Maison de Paris · Saison 1</p>
+      <h1><span class="eyebrow">Codename</span>Red</h1>
+      <p class="kr">코드네임: 레드</p>
+    </header>
     <div class="title-bottom">
+      <p class="tagline"></p>
       <div class="request" id="daily">
-        <span class="small">오늘 밤의 의뢰</span>
+        <span class="eyebrow">오늘 밤의 의뢰</span>
         <strong id="daily-name"></strong>
+        <span class="eyebrow dim" id="daily-line"></span>
       </div>
       <div class="seg" id="diff" role="radiogroup" aria-label="난이도">
         <button data-diff="apprentice" role="radio">견습</button>
@@ -69,16 +73,16 @@
         <span class="dot"></span>
         <button class="link" data-nav="settings">설정</button>
       </div>
-      <p class="foot">설치·가입 없이 바로 플레이 · 이어폰 권장 · 세로 화면</p>
+      <p class="foot">설치·가입 없이 바로 플레이 · 이어폰 권장</p>
     </div>
   </section>
 
   <section id="screen-salon" class="screen" hidden>
     <header class="bar-top">
       <button class="link back" data-nav="title">← 돌아가기</button>
+      <p class="eyebrow">Saison 1 · Collection Book</p>
       <h2>나의 살롱</h2>
     </header>
-    <p class="salon-sub">시즌 1 · 파리 메종 — 컬렉션 북</p>
     <div class="book" id="book"></div>
     <div class="salon-meta" id="salon-meta"></div>
     <p class="foot">피스를 누르면 그 피스를 회수하러 방문합니다.</p>
@@ -87,6 +91,7 @@
   <section id="screen-settings" class="screen" hidden>
     <header class="bar-top">
       <button class="link back" data-nav="title">← 돌아가기</button>
+      <p class="eyebrow">Réglages</p>
       <h2>설정</h2>
     </header>
     <div class="settings">
