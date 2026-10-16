@@ -276,4 +276,4 @@ if (qs.get('play')) {
 }
 
 // 개발·테스트용 훅
-window.__red = { get mission() { return mission; }, store, clearRadio, hint };
+window.__red = { get mission() { return mission; }, store, clearRadio, hint, getShowcase };

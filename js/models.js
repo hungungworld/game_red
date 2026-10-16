@@ -195,56 +195,257 @@ export class Figure extends Humanoid {
 }
 
 // ---------- 컬렉션 피스 (지름 약 1) ----------
-function ellipsePoint(a, rx, ry) { return V(Math.cos(a) * rx, Math.sin(a) * ry, 0); }
+// 경로를 따라 단면을 쓸어 만드는 범용 형상. frame(u) -> {p, n, b}, profile(v) -> [n방향, b방향]
+function sweep(N, M, frame, profile, closed = true) {
+  const pos = [];
+  const uvs = [];
+  const idx = [];
+  const rows = closed ? N : N + 1;
+  for (let i = 0; i < rows; i++) {
+    const u = i / N;
+    const { p, n, b } = frame(u);
+    for (let j = 0; j < M; j++) {
+      const [a, c] = profile(j / M, u);
+      pos.push(p.x + n.x * a + b.x * c, p.y + n.y * a + b.y * c, p.z + n.z * a + b.z * c);
+      uvs.push(u, j / M);
+    }
+  }
+  for (let i = 0; i < N; i++) {
+    const i2 = closed ? (i + 1) % N : i + 1;
+    for (let j = 0; j < M; j++) {
+      const j2 = (j + 1) % M;
+      const a = i * M + j;
+      const b2 = i2 * M + j;
+      const c = i2 * M + j2;
+      const d = i * M + j2;
+      idx.push(a, b2, d, b2, c, d);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+// 둥근 사각 단면 (반폭 w, 반두께 h, 모서리 r)
+function roundRect(w, h, r) {
+  const pts = [];
+  const seg = 6;
+  const corners = [[h - r, w - r, 0], [-(h - r), w - r, Math.PI / 2], [-(h - r), -(w - r), Math.PI], [h - r, -(w - r), Math.PI * 1.5]];
+  for (const [cx, cy, a0] of corners) {
+    for (let k = 0; k <= seg; k++) {
+      const a = a0 + (k / seg) * (Math.PI / 2);
+      pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+    }
+  }
+  return (v) => pts[Math.min(pts.length - 1, Math.floor(v * pts.length))];
+}
 
 function screwHead(mat, r = 0.035) {
   const g = new THREE.Group();
-  const head = new THREE.Mesh(new THREE.CylinderGeometry(r, r, r * 0.5, 20), mat);
+  const head = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.04, r * 0.32, 32), mat);
   head.rotation.x = Math.PI / 2;
-  const slot = new THREE.Mesh(new THREE.BoxGeometry(r * 1.5, r * 0.25, r * 0.3), MAT.onyx());
-  slot.position.z = r * 0.25;
-  slot.rotation.z = 0.6;
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(r * 0.98, 24, 8, 0, Math.PI * 2, 0, Math.PI * 0.18), mat);
+  dome.rotation.x = Math.PI / 2;
+  dome.position.z = -r * 0.82;
+  const slot = new THREE.Mesh(new THREE.BoxGeometry(r * 1.6, r * 0.2, r * 0.12), MAT.onyx());
+  slot.position.z = r * 0.17;
+  slot.rotation.z = 0.7;
   g.add(head, slot);
   return g;
 }
 
+function loveBracelet() {
+  const g = new THREE.Group();
+  const A = 0.46;
+  const B = 0.39;
+  const T = 0.024;
+  const W = 0.068;
+  const frame = (u) => {
+    const t = u * Math.PI * 2;
+    const p = new THREE.Vector3(Math.cos(t) * A, Math.sin(t) * B, 0);
+    const n = new THREE.Vector3(Math.cos(t) / A, Math.sin(t) / B, 0).normalize();
+    return { p, n, b: new THREE.Vector3(0, 0, 1) };
+  };
+  const band = new THREE.Mesh(sweep(240, 28, frame, roundRect(W, T, 0.018)), MAT.gold());
+  g.add(band);
+  // 가장자리를 따라 가는 홈 두 줄
+  for (const z of [-W * 0.72, W * 0.72]) {
+    const line = new THREE.Mesh(sweep(240, 8, frame, (v) => [T + Math.cos(v * Math.PI * 2) * 0.002, z + Math.sin(v * Math.PI * 2) * 0.002]), MAT.goldSatin());
+    g.add(line);
+  }
+  for (let k = 0; k < 10; k++) {
+    const { p, n } = frame(k / 10 + 0.05);
+    const sc = screwHead(MAT.gold(), 0.024);
+    sc.position.copy(p).addScaledVector(n, T - 0.002);
+    sc.lookAt(sc.position.clone().add(n));
+    g.add(sc);
+  }
+  g.rotation.set(-0.55, 0.35, 0);
+  return g;
+}
+
+// 세 링이 서로를 하나씩 통과하는 배치 (중심 오프셋 0.5R, 관 두께 < 0.14R 이면 닿지 않음)
+function trinityRing() {
+  const g = new THREE.Group();
+  const R = 0.29;
+  const t = 0.034;
+  const o = R * 0.5;
+  const geo = new THREE.TorusGeometry(R, t, 48, 220);
+  const a = new THREE.Mesh(geo, MAT.rose());
+  a.position.set(o, 0, 0);
+  const b = new THREE.Mesh(geo, MAT.gold());
+  b.rotation.y = Math.PI / 2;
+  b.position.set(0, o, 0);
+  const c = new THREE.Mesh(geo, MAT.white());
+  c.rotation.x = Math.PI / 2;
+  c.position.set(0, 0, o);
+  const inner = new THREE.Group();
+  inner.add(a, b, c);
+  inner.position.set(-o / 3, -o / 3, -o / 3);
+  g.add(inner);
+  // (1,1,1) 축을 위로: 세 링이 고르게 보이는 각도
+  g.quaternion.setFromUnitVectors(new THREE.Vector3(1, 1, 1).normalize(), new THREE.Vector3(0.25, 1, 0.45).normalize());
+  return g;
+}
+
+function clouBracelet() {
+  const g = new THREE.Group();
+  const R = 0.37;
+  const turn = Math.PI * 2 + 0.55;
+  const r0 = 0.026;
+  const frame = (u) => {
+    const t = u * turn;
+    const p = new THREE.Vector3(Math.cos(t) * R, Math.sin(t) * R * 0.86, -0.045 + u * 0.09);
+    const T = new THREE.Vector3(-Math.sin(t) * R, Math.cos(t) * R * 0.86, 0.09 / turn).normalize();
+    let n = new THREE.Vector3(Math.cos(t), Math.sin(t), 0);
+    n.addScaledVector(T, -n.dot(T)).normalize();
+    const b = new THREE.Vector3().crossVectors(T, n);
+    return { p, n, b, T };
+  };
+  // 끝 10%는 뾰족하게
+  const prof = (v, u) => {
+    const k = u > 0.9 ? Math.max(0, 1 - (u - 0.9) / 0.1) ** 0.9 : 1;
+    const a = v * Math.PI * 2;
+    return [Math.cos(a) * r0 * k, Math.sin(a) * r0 * k];
+  };
+  g.add(new THREE.Mesh(sweep(260, 24, frame, prof, false), MAT.gold()));
+  // 못 머리
+  const f0 = frame(0);
+  const head = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.054, 0.02, 40), MAT.gold());
+  head.position.copy(f0.p).addScaledVector(f0.T, -0.008);
+  head.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), f0.T.clone().negate());
+  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.026, 0.02, 32), MAT.gold());
+  collar.position.copy(f0.p).addScaledVector(f0.T, 0.006);
+  collar.quaternion.copy(head.quaternion);
+  g.add(head, collar);
+  g.rotation.set(-0.6, 0.25, 0.3);
+  return g;
+}
+
+// 팬더 머리: 구를 조각해 만든다. z 앞, y 위.
+function headShape(x, y, z) {
+  let X = x * 0.86;
+  let Y = y * 0.74;
+  let Z = z * 0.8;
+  // 길게 나온 주둥이
+  const m = Math.exp(-((x / 0.36) ** 2 + ((y + 0.28) / 0.28) ** 2)) * Math.max(0, z);
+  Z += m * 0.5;
+  Y -= m * 0.06;
+  // 광대
+  X *= 1 + 0.2 * Math.exp(-(((y + 0.05) / 0.3) ** 2)) * (0.6 + 0.4 * Math.max(0, z));
+  // 넓고 평평한 이마
+  if (y > 0.3) Y = 0.222 + (y - 0.3) * 0.74 * 0.62;
+  // 좁은 턱, 납작한 뒤통수
+  if (y < -0.4) X *= 1 - (-0.4 - y) * 0.7;
+  if (z < 0) Z *= 0.7;
+  // 눈썹뼈
+  Z += Math.exp(-((x / 0.55) ** 2 + ((y - 0.24) / 0.1) ** 2)) * Math.max(0, z) * 0.07;
+  // 눈자리 오목하게
+  for (const sx of [-1, 1]) Z -= Math.exp(-(((x - sx * 0.36) / 0.13) ** 2 + ((y - 0.1) / 0.1) ** 2)) * Math.max(0, z) * 0.05;
+  return new THREE.Vector3(X, Y, Z);
+}
+const onHead = (x, y, z, k = 1) => {
+  const v = new THREE.Vector3(x, y, z).normalize();
+  return headShape(v.x, v.y, v.z).multiplyScalar(k);
+};
+
+let spotTex = null;
+function spots() {
+  if (spotTex) return spotTex;
+  const c = document.createElement('canvas');
+  c.width = 1024;
+  c.height = 512;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff';
+  g.fillRect(0, 0, 1024, 512);
+  let s = 11;
+  const r = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+  g.fillStyle = '#0d0d0d';
+  for (let i = 0; i < 46; i++) {
+    const u = r();
+    const v = 0.1 + r() * 0.78;
+    // 얼굴 앞(u≈0.25) 가운데는 비운다
+    if (Math.abs(u - 0.25) < 0.13 && v > 0.28 && v < 0.85) continue;
+    const cx = u * 1024;
+    const cy = v * 512;
+    const rad = 9 + r() * 12;
+    g.beginPath();
+    for (let k = 0; k <= 12; k++) {
+      const a = (k / 12) * Math.PI * 2;
+      const rr = rad * (0.75 + r() * 0.45);
+      g.lineTo(cx + Math.cos(a) * rr * 1.4, cy + Math.sin(a) * rr);
+    }
+    g.fill();
+  }
+  spotTex = new THREE.CanvasTexture(c);
+  spotTex.colorSpace = THREE.SRGBColorSpace;
+  spotTex.anisotropy = 8;
+  return spotTex;
+}
+
 function pantherHead(scale = 1) {
   const g = new THREE.Group();
-  const gold = MAT.gold();
-  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.3, 40, 28), gold);
-  skull.scale.set(1, 0.9, 0.85);
-  const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.16, 32, 20), gold);
-  muzzle.position.set(0, -0.1, 0.2);
-  muzzle.scale.set(1.15, 0.8, 0.9);
-  g.add(skull, muzzle);
+  const geo = new THREE.SphereGeometry(1, 128, 96);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const v = headShape(pos.getX(i), pos.getY(i), pos.getZ(i));
+    pos.setXYZ(i, v.x, v.y, v.z);
+  }
+  geo.computeVertexNormals();
+  const skin = MAT.gold().clone();
+  skin.map = spots();
+  const head = new THREE.Mesh(geo, skin);
+  g.add(head);
   for (const sx of [-1, 1]) {
-    const ear = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.15, 16), gold);
-    ear.position.set(0.19 * sx, 0.24, -0.02);
-    ear.rotation.z = -0.5 * sx;
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.045, 20, 14), MAT.emerald());
-    eye.position.set(0.11 * sx, 0.02, 0.24);
-    eye.scale.set(1.3, 0.75, 0.6);
-    eye.rotation.z = 0.25 * sx;
-    g.add(ear, eye);
+    // 둥근 삼각 귀: 납작한 원뿔 + 오닉스 안쪽
+    const ear = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.38, 48, 1), MAT.gold());
+    ear.scale.set(1, 1, 0.36);
+    ear.position.copy(onHead(sx * 0.52, 0.85, -0.02, 1)).add(new THREE.Vector3(sx * 0.03, 0.11, 0));
+    ear.rotation.set(-0.3, sx * 0.25, -sx * 0.5);
+    const inner = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.27, 40, 1), MAT.onyx());
+    inner.scale.set(1, 1, 0.22);
+    inner.position.copy(ear.position).add(new THREE.Vector3(sx * 0.01, -0.03, 0.06));
+    inner.rotation.copy(ear.rotation);
+    // 아몬드 모양 에메랄드 눈 + 금 테
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.105, 48, 24), MAT.emerald());
+    eye.scale.set(1.55, 0.62, 0.5);
+    eye.position.copy(onHead(sx * 0.36, 0.1, 0.93, 0.97));
+    eye.rotation.set(-0.1, sx * 0.42, sx * 0.3);
+    const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.03, 16, 12), MAT.onyx());
+    pupil.scale.set(0.5, 1.7, 0.4);
+    pupil.position.copy(eye.position).add(new THREE.Vector3(0, 0, 0.035));
+    pupil.rotation.copy(eye.rotation);
+    g.add(ear, inner, eye, pupil);
   }
-  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.05, 3), MAT.onyx());
-  nose.rotation.x = Math.PI;
-  nose.position.set(0, -0.06, 0.34);
+  // 오닉스 코 (둥근 역삼각)
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.07, 3, 1), MAT.onyx());
+  nose.rotation.set(Math.PI / 2 + 0.25, 0, Math.PI);
+  nose.scale.set(1, 1, 0.8);
+  nose.position.copy(onHead(0, -0.14, 1, 1.0)).add(new THREE.Vector3(0, 0, 0.01));
   g.add(nose);
-  // 오닉스 반점
-  const spot = new THREE.SphereGeometry(0.022, 10, 8);
-  let seed = 7;
-  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  for (let i = 0; i < 26; i++) {
-    const th = rnd() * Math.PI * 1.1 - Math.PI * 0.55;
-    const ph = rnd() * Math.PI * 0.75 + Math.PI * 0.05;
-    const p = V(Math.sin(ph) * Math.sin(th) * 0.3, Math.cos(ph) * 0.27, Math.sin(ph) * Math.cos(th) * 0.255);
-    if (Math.abs(p.x) < 0.17 && p.y < 0.12 && p.y > -0.1) continue; // 눈 주변 비우기
-    const s = new THREE.Mesh(spot, MAT.onyx());
-    s.position.copy(p);
-    s.scale.setScalar(0.7 + rnd() * 0.6);
-    g.add(s);
-  }
   g.scale.setScalar(scale);
   return g;
 }
@@ -252,62 +453,24 @@ function pantherHead(scale = 1) {
 export function buildPiece(id) {
   const g = new THREE.Group();
   switch (id) {
-    case 'love-bracelet': {
-      const band = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.05, 32, 160), MAT.gold());
-      band.scale.set(1, 0.8, 2.3);
-      g.add(band);
-      for (let i = 0; i < 10; i++) {
-        const a = (i / 10) * Math.PI * 2;
-        const p = ellipsePoint(a, 0.47, 0.376);
-        const s = screwHead(MAT.gold(), 0.03);
-        s.position.copy(p);
-        s.lookAt(p.clone().multiplyScalar(2));
-        g.add(s);
-      }
-      g.rotation.x = -0.5;
-      break;
-    }
-    case 'trinity-ring': {
-      const geo = new THREE.TorusGeometry(0.27, 0.05, 32, 120);
-      const a = new THREE.Mesh(geo, MAT.rose());
-      a.position.set(-0.09, -0.04, 0);
-      a.rotation.set(0.2, 0.9, 0);
-      const b = new THREE.Mesh(geo, MAT.gold());
-      b.position.set(0.09, -0.04, 0);
-      b.rotation.set(0.2, -0.9, 0);
-      const c = new THREE.Mesh(geo, MAT.white());
-      c.position.set(0, 0.1, 0);
-      c.rotation.set(1.35, 0, 0);
-      g.add(a, b, c);
-      break;
-    }
-    case 'clou': {
-      const arc = Math.PI * 1.82;
-      const band = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.035, 24, 160, arc), MAT.gold());
-      band.scale.set(1, 0.82, 1);
-      g.add(band);
-      const end = ellipsePoint(arc, 0.4, 0.328);
-      const headM = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.03, 32), MAT.gold());
-      headM.position.copy(end);
-      headM.rotation.z = arc;
-      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.12, 24), MAT.gold());
-      tip.position.set(0.43, -0.04, 0);
-      tip.rotation.z = Math.PI;
-      g.add(headM, tip);
-      g.rotation.x = -0.7;
-      break;
-    }
+    case 'love-bracelet': g.add(loveBracelet()); break;
+    case 'trinity-ring': g.add(trinityRing()); break;
+    case 'clou': g.add(clouBracelet()); break;
     case 'panthere-ring': {
-      const band = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.045, 24, 120), MAT.gold());
-      band.rotation.x = Math.PI / 2 - 0.35;
-      band.position.y = -0.18;
-      const h = pantherHead(0.72);
-      h.position.set(0, 0.12, 0.1);
+      const band = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.032, 32, 160), MAT.gold());
+      band.rotation.x = Math.PI / 2 - 0.3;
+      band.position.y = -0.16;
+      const h = pantherHead(0.24);
+      h.position.set(0, 0.02, 0.17);
+      h.rotation.x = -0.15;
       g.add(band, h);
       break;
     }
-    default:
-      g.add(pantherHead(1.15));
+    default: {
+      const h = pantherHead(0.36);
+      h.rotation.x = 0.08;
+      g.add(h);
+    }
   }
   g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   return g;
